@@ -1,0 +1,73 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, Virtualizing, Observable, List, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, Virtualization, Observable, List, Download, Source, Free">
+<title>Virtualization ObservableList</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Virtualization ObservableList</p>
+<a href="VObservableList.jpg"><img src="VObservableList.jpg" width="150" height="150" alt="Virtualizing ObservableList" title="Virtualization ObservableList"></a>
+<p>Virtualization ObservableList is the possibility of using for virtualized controls such as ListView and TableView. This mode is suitable for displaying large amounts of data.</p>
+<pre>
+------------- VObservableList.java -------------
+
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.control.*;
+import javafx.scene.control.cell.*;
+import javafx.scene.layout.*;
+import javafx.collections.*;
+import javafx.beans.property.*;
+
+public class VObservableList extends Application {
+
+  @Override
+  public void start(Stage stage) {
+    BorderPane layout = new BorderPane();
+    stage.setScene(new Scene(layout, 700, 400));
+
+    TableView&lt;Integer&gt; tableView = new TableView&lt;&gt;();
+    tableView.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+
+    tableView.setItems(new ObservableListBase&lt;Integer&gt;() {
+      Integer value = Integer.valueOf(-1);
+
+      @Override
+      public int size() {
+        return 1000000;
+      }
+
+      @Override
+      public Integer get(int index) {
+        if (index &lt; 0 || index &gt;= size()) throw new IndexOutOfBoundsException();
+        if (index != value.intValue()) {
+          value = Integer.valueOf(index);
+        }
+        return value;
+      }
+    });
+
+    TableColumn&lt;Integer, String&gt; column = new TableColumn&lt;&gt;(&quot;Column&quot;);
+
+    column.setCellValueFactory(cellData -&gt; {
+      return new ReadOnlyObjectWrapper&lt;String&gt;(&quot;Item &quot; + cellData.getValue());
+    });
+
+    tableView.getColumns().add(column);
+    tableView.getSelectionModel().selectFirst();
+    tableView.sortPolicyProperty().set(t -&gt; false);
+
+    layout.setCenter(tableView);
+    stage.show();
+  }
+}
+</pre>
+<p><b><a href="VObservableList.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
