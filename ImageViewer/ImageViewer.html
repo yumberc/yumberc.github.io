@@ -1,0 +1,213 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, Image, Viewer, Image Viewer, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, Image, Viewer, Image Viewer, Download, Source, Free">
+<title>Image Viewer in Java</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Image Viewer in Java</p>
+<a href="ImageViewer.jpg"><img src="ImageViewer.jpg" width="150" height="150" alt="Image Viewer in Java" title="Image Viewer in Java"></a>
+<p></p>
+<pre>
+-------------- ImageViewer.java ----------------
+
+import java.util.*;
+import java.io.*;
+
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.scene.canvas.*;
+import javafx.scene.paint.*;
+import javafx.scene.text.*;
+import javafx.scene.image.*;
+import javafx.scene.input.*;
+import javafx.geometry.*;
+import javafx.beans.*;
+import javafx.embed.swing.SwingFXUtils;
+import javax.imageio.ImageIO;
+
+public class ImageViewer extends Application {
+
+  final Paint imageBackground = Color.GOLD;
+  final double scrollScaleDelta = 1.1;
+  final double keyScaleDelta = 1.2;
+  final KeyCombination kcZoomIn = new KeyCodeCombination(KeyCode.ADD);
+  final KeyCombination kcZoomOut = new KeyCodeCombination(KeyCode.SUBTRACT);
+  final KeyCombination kcZoomToFit = new KeyCodeCombination(KeyCode.MULTIPLY);
+  final KeyCombination kcActualSize = new KeyCodeCombination(KeyCode.DIVIDE);
+  final int ACTUAL = 0;
+  final int SHRINK = 1;
+  final int ZOOM = 2;
+  final int imageSize = SHRINK;
+
+  File[] listFiles;
+  int fileId = 0;
+  double lastX, lastY;
+  double scale = 1;
+  ImageView imageView;
+  ScrollPane scrollPane;
+  Pane pane;
+
+  @Override
+  public void start(Stage stage) {
+    BorderPane layout = new BorderPane();
+    stage.setScene(new Scene(layout, 600, 400));
+    imageView = new ImageView();
+    pane = new Pane(imageView);
+    pane.setBackground(new Background(new BackgroundFill(imageBackground, null, null)));
+    scrollPane = new ScrollPane(pane);
+    InvalidationListener il = obs -&gt; update(scale, null);
+    scrollPane.widthProperty().addListener(il);
+    scrollPane.heightProperty().addListener(il);
+    pane.setOnMousePressed(me -&gt; {
+      lastX = me.getX();
+      lastY = me.getY();
+    });
+    pane.setOnMouseDragged(me -&gt; {
+      double dw = pane.getWidth() - scrollPane.getViewportBounds().getWidth();
+      double dh = pane.getHeight() - scrollPane.getViewportBounds().getHeight();
+      double vw = scrollPane.getHvalue() - (me.getX() - lastX) / dw;
+      double vh = scrollPane.getVvalue() - (me.getY() - lastY) / dh;
+      scrollPane.setHvalue(Math.max(0, Math.min(vw, 1)));
+      scrollPane.setVvalue(Math.max(0, Math.min(vh, 1)));
+    });
+    pane.setOnDragDetected(me -&gt; { pane.setCursor(Cursor.CLOSED_HAND); });
+    pane.addEventFilter(MouseEvent.MOUSE_RELEASED, me -&gt; { pane.setCursor(Cursor.DEFAULT); });
+    scrollPane.addEventFilter(ScrollEvent.SCROLL, se -&gt; {
+      if (se.getDeltaY() != 0) {
+        double sc = (se.getDeltaY() &lt; 0 ? scale * scrollScaleDelta : scale / scrollScaleDelta);
+        update(sc, se.getPickResult().getIntersectedPoint());
+        se.consume();
+      }
+    });
+    scrollPane.addEventFilter(KeyEvent.KEY_PRESSED, ke -&gt; {
+      if (ke.getCode() == KeyCode.PAGE_UP) image(fileId - 1);
+      else if (ke.getCode() == KeyCode.PAGE_DOWN) image(fileId + 1);
+      else if (ke.getCode() == KeyCode.HOME) image(0);
+      else if (ke.getCode() == KeyCode.END) image(listFiles.length - 1);
+      else if (kcZoomIn.match(ke)) update(scale * keyScaleDelta, null);
+      else if (kcZoomOut.match(ke)) update(scale / keyScaleDelta, null);
+      else if (kcZoomToFit.match(ke)) update(scale(SHRINK), null);
+      else if (kcActualSize.match(ke)) update(scale(ACTUAL), null);
+      //else if (ke.getCode() == KeyCode.F5) update(scale(ZOOM), null);
+      else return;
+      ke.consume();
+    });
+    //scrollPane.setStyle(&quot;-fx-background: rgb(212,208,200);&quot;);
+    layout.setCenter(scrollPane);
+    String path = getClass().getProtectionDomain().getCodeSource().getLocation().getPath();
+    //if (path.endsWith(&quot;.jar&quot;)) path = path.substring(0, path.lastIndexOf(&quot;/&quot;) + 1);
+    listFiles = createListFiles(path);
+    if (listFiles.length == 0) listFiles = createDemo(path);
+    stage.show();
+    scrollPane.requestFocus();
+    Platform.runLater(() -&gt; { image(0); });
+  }
+
+  void update(double newScale, Point3D point) {
+    if (imageView.getImage() == null) return;
+    double newWidth = imageView.getImage().getWidth() * newScale;
+    double newHeight = imageView.getImage().getHeight() * newScale;
+    if (Math.min(newWidth, newHeight) &lt; 1 || Math.max(newWidth, newHeight) &gt; 20_000) newScale = scale;
+    double vx = scrollPane.getHvalue() * (pane.getWidth() - scrollPane.getViewportBounds().getWidth());
+    double vy = scrollPane.getVvalue() * (pane.getHeight() - scrollPane.getViewportBounds().getHeight());
+    if (point == null) point = new Point3D(
+      vx + scrollPane.getViewportBounds().getWidth() / 2,
+      vy + scrollPane.getViewportBounds().getHeight() / 2, 0);
+    double k = newScale / scale - 1;
+    scale = newScale;
+    imageView.setFitWidth(imageView.getImage().getWidth() * scale);
+    imageView.setFitHeight(imageView.getImage().getHeight() * scale);
+    scrollPane.layout();
+    double dw = pane.getWidth() - scrollPane.getViewportBounds().getWidth();
+    double dh = pane.getHeight() - scrollPane.getViewportBounds().getHeight();
+    if (dw &gt; 0) scrollPane.setHvalue(Math.max(0, Math.min((vx + point.getX() * k) / dw, 1)));
+    if (dh &gt; 0) scrollPane.setVvalue(Math.max(0, Math.min((vy + point.getY() * k) / dh, 1)));
+    //dw = pane.getWidth() - scrollPane.getWidth() - scrollPane.getPadding().getLeft() - scrollPane.getPadding().getRight();
+    //dh = pane.getHeight() - scrollPane.getHeight() - scrollPane.getPadding().getTop() - scrollPane.getPadding().getBottom();
+    pane.setTranslateX(dw &gt;= 0 ? 0 : -dw / 2);
+    pane.setTranslateY(dh &gt;= 0 ? 0 : -dh / 2);
+  }
+
+  double scale(int v) {
+    if (v == ACTUAL || imageView.getImage() == null) return 1;
+    double width = scrollPane.getWidth() - scrollPane.getPadding().getLeft() - scrollPane.getPadding().getRight();
+    double height = scrollPane.getHeight() - scrollPane.getPadding().getTop() - scrollPane.getPadding().getBottom();
+    double scaleWidth = width / imageView.getImage().getWidth();
+    double scaleHeight = height / imageView.getImage().getHeight();
+    double sc = Math.min(scaleWidth, scaleHeight);
+    if (v == SHRINK) sc = Math.min(1, sc);
+    return sc;
+  }
+
+  void image(int newFileId) {
+    if (listFiles != null &amp;&amp; newFileId &gt;= 0 &amp;&amp; newFileId &lt; listFiles.length) {
+      fileId = newFileId;
+      imageView.setImage(new Image(listFiles[fileId].toURI().toString()));
+      scrollPane.setHvalue(0);
+      scrollPane.setVvalue(0);
+      update(scale(imageSize), Point3D.ZERO);
+    }
+  }
+
+  File[] createListFiles(String path) {
+    final String[] extensions = new String[] {&quot;.bmp&quot;, &quot;.gif&quot;, &quot;.jpeg&quot;, &quot;.jpg&quot;, &quot;.png&quot;};
+    File[] files = new File(path).listFiles((dir, name) -&gt; {
+      for (String extension : extensions) {
+        if (name.toLowerCase().endsWith(extension)) return true;
+      }
+      return false;
+    });
+    //if (files == null) return new File[0];
+    Arrays.sort(files, (f1, f2) -&gt; f1.getName().compareToIgnoreCase(f2.getName()));
+    return files;
+  }
+
+  File[] createDemo(String path) {
+    final int[][] mm = new int[][] {{3, 3}, {13, 13}, {13, 3}, {3, 13}};
+    final int sz = 100;
+    final int s = 10;
+    SnapshotParameters sp = new SnapshotParameters();
+    sp.setFill(Color.TRANSPARENT);
+    Canvas canvas = new Canvas();
+    GraphicsContext gc = canvas.getGraphicsContext2D();
+    gc.setTextBaseline(VPos.CENTER);
+    gc.setTextAlign(TextAlignment.CENTER);
+    gc.setFill(Color.web(&quot;808080&quot;));
+    for (int[] m : mm) {
+      int nx = m[0];
+      int ny = m[1];
+      canvas.setWidth(nx * sz + s);
+      canvas.setHeight(ny * sz + s);
+      gc.setFont(Font.font((sz - s) * .3));
+      gc.clearRect(0, 0, canvas.getWidth(), canvas.getHeight());
+      for (int y = 0; y &lt; ny; y++) {
+        gc.fillRect(0, y * sz, sz * nx, s);
+        for (int x = 0; x &lt; nx; x++) {
+          if (y == 0) gc.fillRect(x * sz, 0, s, sz * ny);
+          gc.fillText(x + &quot;,&quot; + y, x * sz + s + (sz - s) / 2, y * sz + s + (sz - s) / 2);
+        }
+      }
+      gc.fillRect(0, ny * sz, sz * nx + s, s);
+      gc.fillRect(nx * sz, 0, s, sz * ny);
+      File file = new File(path, &quot;image&quot; + nx + &quot;x&quot; + ny + &quot;.png&quot;);
+      WritableImage snapshot = canvas.snapshot(sp, null);
+      try {
+        ImageIO.write(SwingFXUtils.fromFXImage(snapshot, null), &quot;png&quot;, file);
+      } catch (Exception e) { e.printStackTrace(); }
+    }
+    return createListFiles(path);
+  }
+}
+</pre>
+<p><b><a href="ImageViewer.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
