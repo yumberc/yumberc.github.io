@@ -1,0 +1,212 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, XML, View, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, XML, View, Download, Source, Free">
+<title>XML Viewer in Java</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>XML Viewer in Java</p>
+<a href="XMLView.jpg"><img src="XMLView.jpg" width="150" height="150" alt="XML Viewer in Java" title="XML Viewer in Java"></a>
+<p>This example shows the XML document in the form of a tree.</p>
+<pre>
+---------------- XMLView.java ------------------
+
+import java.io.*;
+import java.util.*;
+import java.nio.file.*;
+
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.control.*;
+import javafx.scene.image.*;
+import javafx.scene.layout.*;
+import javafx.beans.property.*;
+
+import javax.xml.parsers.*;
+import org.w3c.dom.*;
+
+public class XMLView extends Application {
+  Label label;
+  TreeTableView&lt;org.w3c.dom.Node&gt; treeTableView;
+
+  @Override
+  public void start(Stage stage) {
+    List&lt;String&gt; p = getParameters().getRaw();
+    File file;
+    if (!p.isEmpty()) {
+      file = new File(p.get(0));
+      if (!file.isFile()) throw new RuntimeException(file.getName() + &quot; file not found&quot;);
+    } else {
+      file = new File(&quot;sample.xml&quot;);
+      if (!file.exists()) createDemo(file);
+    }
+    label = new Label();
+    treeTableView = createTreeTableView(file);
+    BorderPane layout = new BorderPane();
+    layout.setCenter(treeTableView);
+    layout.setBottom(label);
+    stage.setScene(new Scene(layout, 600, 400));
+    stage.show();
+  }
+
+  TreeTableView&lt;org.w3c.dom.Node&gt; createTreeTableView(File file) {
+    TreeTableView&lt;org.w3c.dom.Node&gt; treeTableView = new TreeTableView&lt;&gt;(createTreeItems(file));
+    treeTableView.setShowRoot(true);
+    treeTableView.setColumnResizePolicy(TreeTableView.CONSTRAINED_RESIZE_POLICY);
+    TreeTableColumn&lt;org.w3c.dom.Node, TreeItem&lt;org.w3c.dom.Node&gt;&gt; nameColumn = new TreeTableColumn&lt;&gt;(&quot;Name&quot;);
+
+    nameColumn.setCellValueFactory(
+      (TreeTableColumn.CellDataFeatures&lt;org.w3c.dom.Node, TreeItem&lt;org.w3c.dom.Node&gt;&gt; cellData) -&gt;
+        new ReadOnlyObjectWrapper&lt;TreeItem&lt;org.w3c.dom.Node&gt;&gt;(cellData.getValue())
+    );
+
+    Image[] images = new Image[tagNames.length];
+    try {
+      Image image = new Image(getClass().getResourceAsStream(&quot;image.png&quot;));
+      for(int i = 0; i &lt; images.length; i++) {
+        images[i] = new WritableImage(image.getPixelReader(), i * 16, 0, 16, 16);
+      }
+    } catch (Exception e) {}
+
+    nameColumn.setCellFactory(column -&gt; {
+      TreeTableCell&lt;org.w3c.dom.Node, TreeItem&lt;org.w3c.dom.Node&gt;&gt; cell = new TreeTableCell&lt;org.w3c.dom.Node, TreeItem&lt;org.w3c.dom.Node&gt;&gt;() {
+        ImageView[] imageView = new ImageView[images.length];
+        { for(int i = 0; i &lt; imageView.length; i++) imageView[i] = new ImageView(images[i]); }
+
+        @Override
+        protected void updateItem(TreeItem&lt;org.w3c.dom.Node&gt; item, boolean empty) {
+          super.updateItem(item, empty);
+          if (item != null && !empty) {
+            org.w3c.dom.Node node = item.getValue();
+            if (item.getValue() != null) {
+              String s = node.getNodeName();
+              setText(s == null ? &quot;&quot; : s.trim());
+              setGraphic(imageView[typeIndex(node.getNodeType())]);
+              return;
+            }
+          }
+          setText(null);
+          setGraphic(null);
+        }
+      };
+      return cell;
+    });
+
+    nameColumn.setPrefWidth(300);
+    nameColumn.setSortable(false);
+    treeTableView.getColumns().add(nameColumn);
+
+    TreeTableColumn&lt;org.w3c.dom.Node, String&gt; valueColumn = new TreeTableColumn&lt;&gt;(&quot;Value&quot;);
+    valueColumn.setCellValueFactory(cellData -&gt; {
+      TreeItem&lt;org.w3c.dom.Node&gt; item = cellData.getValue();
+      org.w3c.dom.Node childNode = item.getValue();
+      if (childNode != null) {
+        String s = childNode.getNodeType() == org.w3c.dom.Node.DOCUMENT_TYPE_NODE ?
+          ((DocumentType)childNode).getInternalSubset() : childNode.getNodeValue();
+        if (s != null) {
+          return new ReadOnlyObjectWrapper&lt;String&gt;(s.trim());
+          //return new ReadOnlyObjectWrapper&lt;String&gt;(s.trim().replaceAll(&quot;\\s+&quot;, &quot; &quot;));
+        }
+      }
+      return null;
+    });
+
+    valueColumn.setPrefWidth(100);
+    valueColumn.setSortable(false);
+    treeTableView.getColumns().add(valueColumn);
+
+    treeTableView.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -&gt; {
+      if (newValue != null) {
+        org.w3c.dom.Node node = newValue.getValue();
+        if (node != null) {
+          label.setText(tagNames[typeIndex(node.getNodeType())]);
+          return;
+        }
+      }
+      label.setText(&quot;&quot;);
+    });
+    treeTableView.getSelectionModel().selectFirst();
+    return treeTableView;
+  }
+
+  TreeItem&lt;org.w3c.dom.Node&gt; createTreeItems(File file) {
+    TreeItem&lt;org.w3c.dom.Node&gt; root = null;
+    try {
+      DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+      DocumentBuilder builder = factory.newDocumentBuilder();
+      Document doc = builder.parse(file);
+      doc.getDocumentElement().normalize();
+      root = new TreeItem&lt;&gt;(doc);
+      root.setExpanded(true);
+      addChildrenItem(root);
+    } catch (Exception e) { e.printStackTrace(); }
+    return root;
+  }
+
+  void addChildrenItem(TreeItem&lt;org.w3c.dom.Node&gt; root) {
+    org.w3c.dom.Node node = root.getValue();
+    if (node.hasAttributes()) {
+      NamedNodeMap attrs = node.getAttributes();  
+      for(int i = 0; i &lt; attrs.getLength(); i++) {
+        root.getChildren().add(new TreeItem&lt;org.w3c.dom.Node&gt;(attrs.item(i)));
+      }
+    }
+    NodeList list = node.getChildNodes(); 
+    for (int i = 0; i &lt; list.getLength(); i++) { 
+      org.w3c.dom.Node childNode = list.item(i);
+      if (childNode != null && (childNode.getNodeType() != org.w3c.dom.Node.TEXT_NODE ||
+        (childNode.getNodeValue() != null && childNode.getNodeValue().trim().length() &gt; 0))) {
+        TreeItem&lt;org.w3c.dom.Node&gt; treeItem = new TreeItem&lt;&gt;(childNode);
+        treeItem.setExpanded(true);
+        root.getChildren().add(treeItem);
+        addChildrenItem(treeItem);
+      }
+    } 
+  } 
+
+  final String tagNames[] = {&quot;Not considered&quot;, &quot;Element&quot;, &quot;Attribute&quot;,
+    &quot;Text&quot;, &quot;CDATA section&quot;, &quot;Processing Instruction&quot;,
+    &quot;Comment&quot;, &quot;Document&quot;, &quot;Document Type&quot;};
+
+  int typeIndex(int t) {
+    switch (t) {
+      case org.w3c.dom.Node.ELEMENT_NODE:                return 1;
+      case org.w3c.dom.Node.ATTRIBUTE_NODE:              return 2;
+      case org.w3c.dom.Node.TEXT_NODE:                   return 3;
+      case org.w3c.dom.Node.CDATA_SECTION_NODE:          return 4;
+      case org.w3c.dom.Node.PROCESSING_INSTRUCTION_NODE: return 5;
+      case org.w3c.dom.Node.COMMENT_NODE:                return 6;
+      case org.w3c.dom.Node.DOCUMENT_NODE:               return 7;
+      case org.w3c.dom.Node.DOCUMENT_TYPE_NODE:          return 8;
+    }
+    return 0;
+  }
+
+  void createDemo(File file) {
+    StringBuilder sb = new StringBuilder();
+    sb.append(&quot;&lt;?xml version=\&quot;1.0\&quot;?&gt;\n&quot;);
+    sb.append(&quot; &lt;!DOCTYPE DocType [&lt;!ENTITY name \&quot;Value\&quot;&gt;]&gt;\n&quot;);
+    sb.append(&quot; &lt;?Target Instruction?&gt;\n&quot;);
+    sb.append(&quot; &lt;!--Comment--&gt;\n&quot;);
+    sb.append(&quot;&lt;Element Attribute=\&quot;Attribute\&quot;&gt;\n&quot;);
+    sb.append(&quot; &lt;Element&gt;\n&quot;);
+    sb.append(&quot;  Text &name;\n&quot;);
+    sb.append(&quot; &lt;/Element&gt;\n&quot;);
+    sb.append(&quot; &lt;![CDATA[CDATA Section]]&gt;\n&quot;);
+    sb.append(&quot; &lt;EmptyElement/&gt;\n&quot;);
+    sb.append(&quot;&lt;/Element&gt;\n&quot;);
+    try {
+      Files.write(file.toPath(), sb.toString().getBytes());
+    } catch (Exception e) { }
+  }
+}
+</pre>
+<p><b><a href="XMLView.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
