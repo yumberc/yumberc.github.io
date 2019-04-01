@@ -1,0 +1,411 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, FontStore, Font, Zip, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, FontStore, Font, Zip, Download, Source, Free">
+<title>FontStore in Java</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>FontStore in Java</p>
+<a href="FontStore.jpg"><img src="FontStore.jpg" width="150" height="150" alt="FontStore in Java" title="FontStore in Java"></a>
+<p></p>
+<pre>
+--------------- FontStore.java -----------------
+
+import java.io.*;
+import java.util.Map.*;
+import java.util.AbstractMap.*;
+import java.nio.file.*;
+import java.util.*;
+import java.text.*;
+
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.scene.text.*;
+import javafx.scene.input.*;
+import javafx.geometry.*;
+import javafx.collections.*;
+import javafx.collections.transformation.*;
+import javafx.beans.property.*;
+import javafx.event.*;
+
+public class FontStore extends Application {
+
+  final String pangram = &quot;The quick brown fox jumps over the lazy dog&quot;;
+  //final String pangram = &quot;Jackdaws love my big sphinx of quartz&quot;;
+  //final String pangram = &quot;The five boxing wizards jump quickly&quot;;
+  String pattern = pangram;
+  double fontSize = 24;
+  FileSystem fs = null;
+  ObservableList&lt;Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;&gt; data = null;
+  Path currentPath;
+  TableView&lt;Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;&gt; tableView;
+  TableRow&lt;Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;&gt; currentRow = null;
+  ContextMenu contextMenu = new ContextMenu();
+  Stage stage;
+
+  public void start(Stage stage) {
+    this.stage = stage;
+    BorderPane layout = new BorderPane();
+    stage.setScene(new Scene(layout, 700, 400));
+    open(&quot;archive.zip&quot;);
+    fontTable();
+    MenuBar menuBar = new MenuBar();
+    Menu miFile = new Menu(&quot;File&quot;);
+    MenuItem miFileExit = new MenuItem(&quot;Exit&quot;);
+    miFileExit.setOnAction(ae -&gt; { close(); Platform.exit(); System.exit(0); });
+    miFile.getItems().addAll(miFileExit);
+    menuBar.getMenus().addAll(miFile);
+    layout.setTop(menuBar);
+    layout.setCenter(tableView);
+    layout.setLeft(fontTree());
+    stage.setOnCloseRequest(ev -&gt; { close(); });
+    stage.show();
+  }
+
+  boolean open(String name) {
+    Path p = Paths.get(name);
+    try {
+      if (!Files.exists(p)) {
+        java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(Files.newOutputStream(p));
+        zos.close();
+      }
+      fs = FileSystems.newFileSystem(p, null);
+      return true;
+    } catch (Exception e) { }
+    return false;
+  }
+
+  void close() { try { fs.close(); } catch (Exception e) { } }
+
+  void fontTable() {
+    tableView = new TableView&lt;&gt;();
+    tableView.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+    tableView.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
+    tableView.setPlaceholder(new Label(null));
+    hideColumnHeader(tableView);
+    data = FXCollections.observableArrayList();
+    SortedList&lt;Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;&gt; sortedList = new SortedList&lt;&gt;(data);
+    sortedList.comparatorProperty().bind(new SimpleObjectProperty&lt;Comparator&lt;Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;&gt;&gt;((t1, t2) -&gt; t1.getKey().compareTo(t2.getKey())));
+    tableView.setItems(sortedList);
+    Font fontBold = Font.font(Font.getDefault().getFamily(), FontWeight.BOLD, Font.getDefault().getSize());
+    TableColumn&lt;Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;, Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;&gt; column = new TableColumn&lt;&gt;();
+    column.setCellValueFactory(c -&gt; new ReadOnlyObjectWrapper&lt;Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;&gt;(c.getValue()));
+    column.setCellFactory(c -&gt; new TableCell&lt;Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;, Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;&gt;() {
+      @Override
+      public void updateItem(Entry&lt;Path, Entry&lt;Font, ?&gt;&gt; item, boolean empty) {
+        super.updateItem(item, empty);
+        if (empty) {
+          setGraphic(null);
+        } else {
+          if (item.getValue() == null) {
+            Font font = null;
+            try { 
+              font = Font.loadFont(Files.newInputStream(item.getKey()), fontSize);
+            } catch (Exception e) { }
+            item.setValue(new SimpleEntry&lt;&gt;(font, null));
+          }
+          Font font = item.getValue().getKey();
+          if (font == null) {
+            setGraphic(new Label(&quot;Error loading font: &quot;.concat(item.getKey().toString())));
+          } else {
+            Label l1 = new Label(font.getName()); l1.setMinWidth(130); l1.setFont(fontBold);
+            Label l2 = new Label(&quot; &quot;.concat(item.getKey().toString()));
+            Label l3 = new Label(pattern); l3.setFont(font);
+            GridPane gridpane = new GridPane();
+            gridpane.add(l1, 1, 1);
+            gridpane.add(l2, 2, 1);
+            gridpane.add(l3, 1, 2, 2, 1);
+            setGraphic(gridpane);
+          }
+        }
+      }
+    });
+    tableView.getColumns().add(column);
+    MenuItem miView = new MenuItem(&quot;View&quot;);
+    miView.setOnAction(ae -&gt; { view(); });
+    MenuItem miIns = new MenuItem(&quot;Insert&quot;);
+    miIns.setOnAction(ae -&gt; { insert(); });
+    MenuItem miExtr = new MenuItem(&quot;Extract&quot;);
+    miExtr.setOnAction(ae -&gt; { extract(); });
+    MenuItem miDel = new MenuItem(&quot;Delete&quot;);
+    miDel.setOnAction(ae -&gt; { delete(); });
+    contextMenu.getItems().setAll(miView, new SeparatorMenuItem(), miIns, miExtr, new SeparatorMenuItem(), miDel);
+    tableView.setRowFactory(tv -&gt; {
+      TableRow&lt;Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;&gt; row = new TableRow&lt;&gt;();
+      row.setOnMouseClicked(me -&gt; { currentRow = row; });
+      return row;
+    });
+    tableView.setOnMouseClicked(me -&gt; {
+      if (contextMenu.isShowing()) contextMenu.hide();
+      if (currentPath != null) {
+        boolean b = (currentRow == null || currentRow.isEmpty());
+        if (me.getButton() == MouseButton.PRIMARY &amp;&amp; me.getClickCount() == 2 &amp;&amp; !b) {
+          view();
+        } else if (me.getButton() == MouseButton.SECONDARY) {
+          miView.setDisable(b);
+          miExtr.setDisable(b);
+          miDel.setDisable(b);
+          contextMenu.show((Node)me.getSource(), me.getScreenX(), me.getScreenY());
+        }
+      }
+    });
+    tableView.setOnKeyPressed(ke -&gt; {
+      if (currentPath != null) {
+        if (ke.getCode() == KeyCode.INSERT) insert();
+        else if (ke.getCode() == KeyCode.DELETE) delete();
+        else if (ke.getCode() == KeyCode.ENTER) view();
+        else if (ke.getCode() == KeyCode.F5) extract();
+      }
+    });
+  }
+
+  Node fontTree() {
+    TreeTableView&lt;Path&gt; treeTableView = new TreeTableView&lt;&gt;();
+    treeTableView.setMaxWidth(150);
+    treeTableView.setRoot(iniTree());
+    treeTableView.setColumnResizePolicy(TreeTableView.CONSTRAINED_RESIZE_POLICY);
+    treeTableView.setPlaceholder(new Label(null));
+    hideColumnHeader(treeTableView);
+    TreeTableColumn&lt;Path, String&gt; column = new TreeTableColumn&lt;&gt;();
+    column.setCellValueFactory(c -&gt; {
+      String s;
+      if (c.getValue().getValue() != null &amp;&amp; c.getValue().getValue().getFileName() != null) {
+        s = c.getValue().getValue().getFileName().toString();
+        int l = s.length() - 1;
+        if (l &gt;= 0 &amp;&amp; s.charAt(l) == &apos;/&apos;) s = s.substring(0, l);
+      } else s = &quot;/&quot;;
+      return new ReadOnlyObjectWrapper&lt;String&gt;(s);
+    });
+    treeTableView.getColumns().add(column);
+    treeTableView.getSelectionModel().selectedItemProperty().addListener((o, v, n) -&gt; {
+      if (n != null) {
+        fillTable(n.getValue());
+        tableView.getSelectionModel().selectFirst();
+      }
+    });
+    treeTableView.setOnMouseClicked(me -&gt; {
+      if (me.getButton() == MouseButton.PRIMARY &amp;&amp; me.getClickCount() == 2) {
+        tableView.requestFocus();
+      }
+    });
+    treeTableView.getSelectionModel().selectFirst();
+    return treeTableView;
+  }
+
+  void fillTable(Path directory) {
+    data.clear();
+    currentPath = directory;
+    if (directory != null) {
+      try {
+        DirectoryStream&lt;Path&gt; stream = Files.newDirectoryStream(directory, p -&gt; !Files.isDirectory(p));
+        stream.forEach(p -&gt; data.add(new SimpleEntry&lt;&gt;(p, null)));
+      } catch (Exception e) { e.printStackTrace(); }
+    }
+  }
+
+  TreeItem&lt;Path&gt; iniTree() {
+    TreeItem&lt;Path&gt; root = null;
+    try {
+      List&lt;Path&gt; listPath = new ArrayList&lt;&gt;();
+      fs.getRootDirectories().forEach(listPath::add);
+      if (listPath.size() == 1) {
+        root = getTreeItem(listPath.get(0));
+      } else {
+        root = new TreeItem&lt;&gt;();
+        for(Path p : listPath) {
+          root.getChildren().add(getTreeItem(p));
+        }
+      }
+      root.setExpanded(true);
+    } catch (Exception e) { e.printStackTrace(); }
+    return root;
+  }
+
+  TreeItem&lt;Path&gt; getTreeItem(Path directory) throws Exception {
+    TreeItem&lt;Path&gt; root = new TreeItem&lt;Path&gt;(directory);
+    DirectoryStream&lt;Path&gt; stream = Files.newDirectoryStream(directory, p -&gt; Files.isDirectory(p));
+    for (Path f : stream) root.getChildren().add(getTreeItem(f));
+    root.setExpanded(true);
+    root.getChildren().sort((t1, t2) -&gt; t1.getValue().compareTo(t2.getValue()));
+    return root;
+  }
+
+  void hideColumnHeader(Region table) {
+    table.widthProperty().addListener((v, o, n) -&gt; {
+      Pane header = (Pane)table.lookup(&quot;TableHeaderRow&quot;);
+      if (header != null &amp;&amp; header.isVisible()) {
+        header.setMaxHeight(0); header.setMinHeight(0); header.setPrefHeight(0);
+        header.setVisible(false); header.setManaged(false);
+      }
+    });
+  }
+
+  void insert() {
+    if (currentPath != null) {
+      FileChooser.ExtensionFilter fontFl = new FileChooser.ExtensionFilter(&quot;Font files (*.ttf; *.otf)&quot;, &quot;*.ttf&quot;, &quot;*.otf&quot;);
+      FileChooser.ExtensionFilter allFl = new FileChooser.ExtensionFilter(&quot;All files (*.*)&quot;, &quot;*.*&quot;);
+      FileChooser fileChooser = new FileChooser();
+      fileChooser.getExtensionFilters().addAll(fontFl, allFl);
+      List&lt;File&gt; files = fileChooser.showOpenMultipleDialog(stage);
+      if (files != null) {
+        List&lt;Entry&lt;Path, Path&gt;&gt; list = new ArrayList&lt;&gt;();
+        List&lt;Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;&gt; items = new ArrayList&lt;&gt;();
+        files.forEach(p -&gt; {
+          list.add(new SimpleEntry&lt;&gt;(p.toPath(), currentPath.resolve(p.getName())));
+        });
+        List&lt;Entry&lt;Path, Path&gt;&gt; lr = flCopy(list);
+        lr.forEach(p -&gt; {
+          Entry&lt;Path, Entry&lt;Font, ?&gt;&gt; item = null;
+          for (Entry&lt;Path, Entry&lt;Font, ?&gt;&gt; d : data) {
+            if (d.getKey().equals(p.getValue())) { item = d; break; }
+          }
+          if (item == null) {
+            item = new SimpleEntry&lt;&gt;(p.getValue(), null);
+            data.add(item);
+          }
+          items.add(item);
+        });
+        if (!items.isEmpty()) {
+          tableView.getSelectionModel().clearSelection();
+          items.forEach(p -&gt; tableView.getSelectionModel().select(p));
+          tableView.getSelectionModel().getSelectedIndex();
+          tableView.scrollTo(items.get(0));
+        }
+      }
+    }
+  }
+
+  void delete() {
+    ObservableList&lt;Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;&gt; items = FXCollections.observableArrayList(tableView.getSelectionModel().getSelectedItems());
+    if (!items.isEmpty() &amp;&amp; alert(Alert.AlertType.CONFIRMATION, &quot;Delete &quot; + (items.size() == 1 ? &quot;&apos;&quot; + items.get(0).getKey() + &quot;&apos;&quot; : items.size() + &quot; files&quot;) + &quot;?&quot;, ButtonType.YES, ButtonType.NO) == ButtonType.YES) {
+      for(Entry&lt;Path, Entry&lt;Font, ?&gt;&gt; entry : items) {
+        try {
+          Files.deleteIfExists(entry.getKey());
+          data.remove(entry);
+        } catch (Exception e) { e.printStackTrace(); }
+      }
+    }
+  }
+
+  void extract() {
+    ObservableList&lt;Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;&gt; items = tableView.getSelectionModel().getSelectedItems();
+    if (!items.isEmpty()) {
+      DirectoryChooser directoryChooser = new DirectoryChooser(); 
+      File initialDirectory = new File(&quot;c:\\&quot;); //File.listRoots()[0]
+      if (initialDirectory.isDirectory()) directoryChooser.setInitialDirectory(initialDirectory);
+      File directory = directoryChooser.showDialog(stage);
+      if (directory != null) {
+        List&lt;Entry&lt;Path, Path&gt;&gt; list = new ArrayList&lt;&gt;();
+        items.forEach(p -&gt; {
+          Path path = Paths.get(directory.toString(), p.getKey().getFileName().toString());
+          list.add(new SimpleEntry&lt;&gt;(p.getKey(), path));
+        });
+        flCopy(list);
+      }
+    }
+  }
+
+  List&lt;Entry&lt;Path, Path&gt;&gt; flCopy(List&lt;Entry&lt;Path, Path&gt;&gt; list) {
+    List&lt;Entry&lt;Path, Path&gt;&gt; ret = new ArrayList&lt;&gt;();
+    boolean tl = false;
+    for(Entry&lt;Path, Path&gt; entry : list) {
+      try {
+        boolean cp = true;
+        if (!tl &amp;&amp; Files.exists(entry.getValue())) {
+          ButtonType yesToAll = new ButtonType(&quot;Yes to All&quot;, ButtonBar.ButtonData.YES);
+          ButtonType[] m = list.size() &gt; 1 ?
+            new ButtonType[] { ButtonType.YES, yesToAll, ButtonType.NO, ButtonType.CANCEL } :
+            new ButtonType[] { ButtonType.YES, ButtonType.NO, ButtonType.CANCEL };
+          SimpleDateFormat df = new SimpleDateFormat(&quot;yyyy/MM/dd HH:mm:ss&quot;);
+          GridPane gridPane = new GridPane();
+          gridPane.add(new Label(&quot;File &apos;&quot; + entry.getValue() +&quot;&apos; already exists. Overwrite?&quot;), 1, 1, 3, 1);
+          gridPane.add(new Label(&quot;New:&quot;), 1, 2);
+          gridPane.add(new Label(&quot;Existing:&quot;), 1, 3);
+          Label l1 = new Label(Files.size(entry.getKey()) + &quot; bytes, &quot;);
+          Label l2 = new Label(Files.size(entry.getValue()) + &quot; bytes, &quot;);
+          gridPane.add(l1, 2, 2); GridPane.setHalignment(l1, HPos.RIGHT);
+          gridPane.add(l2, 2, 3); GridPane.setHalignment(l2, HPos.RIGHT);
+          gridPane.add(new Label(df.format(Files.getLastModifiedTime(entry.getKey()).toMillis())), 3, 2);
+          gridPane.add(new Label(df.format(Files.getLastModifiedTime(entry.getValue()).toMillis())), 3, 3);
+          ButtonType result = alert(Alert.AlertType.CONFIRMATION, gridPane, m);
+          if (result == ButtonType.NO) cp = false;
+          else if (result == yesToAll) tl = true;
+          else if (result != ButtonType.YES) break;
+        }
+        if (tl || cp) {
+          Files.copy(entry.getKey(), entry.getValue(), StandardCopyOption.REPLACE_EXISTING);
+          //Files.setLastModifiedTime(entry.getValue(), Files.getLastModifiedTime(entry.getKey()));
+          ret.add(entry);
+        }
+      } catch (Exception e) { e.printStackTrace(); }
+    }
+    return ret;
+  }
+
+  ButtonType alert(Alert.AlertType type, Object cont, ButtonType... bt) {
+    Alert alert = new Alert(type, null, bt);
+    alert.initOwner(stage);
+    alert.initStyle(StageStyle.UTILITY);
+    alert.setHeaderText(null);
+    if (cont instanceof String) alert.setContentText((String)cont);
+    else if (cont instanceof Node) alert.getDialogPane().setContent((Node)cont);
+    dpBehavior(alert.getDialogPane());
+    Optional&lt;ButtonType&gt; result = alert.showAndWait();
+    return (result.isPresent() ? result.get() : null);
+  }
+
+  void view() {
+    ObservableList&lt;Entry&lt;Path, Entry&lt;Font, ?&gt;&gt;&gt; items = tableView.getSelectionModel().getSelectedItems();
+    if (!items.isEmpty()) {
+      Entry&lt;Path, Entry&lt;Font, ?&gt;&gt; entry = items.get(0);
+      Font font = entry.getValue().getKey();
+      if (font != null) {
+        Dialog&lt;ButtonType&gt; dialog = new Dialog&lt;&gt;();
+        dialog.initOwner(stage);
+        dialog.initStyle(StageStyle.UTILITY);
+        dialog.setHeaderText(null);
+        long size = 0;
+        try { size = Files.size(entry.getKey()); } catch (Exception e) { }
+        String s = &quot;Font: &quot; + font.getName() + &quot;, File name: &quot; + entry.getKey().toString() + &quot;, Size: &quot; + size + &quot; bytes.&quot;;
+        GridPane gridPane = new GridPane();
+        byte[] bArr = new byte[1];
+        for (int c = 32; c < 256; c++) {
+          bArr[0] = (byte)c;
+          Text text = new Text(new String(bArr));
+          text.setFont(font);
+          gridPane.add(text, c % 32, c / 32);
+        }
+        dialog.getDialogPane().setContent(new VBox(10, new Label(s), gridPane));
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK);
+        dpBehavior(dialog.getDialogPane());
+        dialog.showAndWait();
+      }
+    }
+  }
+
+  void dpBehavior(DialogPane dialogPane) {
+    for (ButtonType bt : dialogPane.getButtonTypes()) {
+      Button b = (Button)dialogPane.lookupButton(bt);
+      b.setDefaultButton(false);
+      b.addEventHandler(KeyEvent.KEY_PRESSED, ke -&gt; {
+        if (ke.getCode() == KeyCode.ENTER) {
+          ((Button)ke.getTarget()).fire();
+          ke.consume();
+        }
+      });
+    }
+  }
+}
+
+</pre>
+<p><b><a href="FontStore.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
