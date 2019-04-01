@@ -1,0 +1,192 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, Hex, Viewer, HexView, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, Hex, Viewer, HexView, Download, Source, Free">
+<title>Hex Viewer</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Hex Viewer</p>
+<a href="HexView.jpg"><img src="HexView.jpg" width="150" height="150" alt="Hex Viewer" title="Hex Viewer"></a>
+<p></p>
+<pre>
+----------------- HexView.java -----------------
+
+import java.io.*;
+import java.util.*;
+import java.nio.*;
+import java.nio.charset.*;
+
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.control.*;
+import javafx.scene.control.cell.*;
+import javafx.scene.layout.*;
+import javafx.scene.text.*;
+import javafx.collections.*;
+import javafx.beans.property.*;
+import javafx.util.*;
+
+public class HexView extends Application {
+
+  RandomAccessFile raf = null;
+  int size = 0;
+
+  @Override
+  public void start(Stage stage) {
+
+    File file;
+    List&lt;String&gt; p = getParameters().getRaw();
+    if (!p.isEmpty()) {
+      file = new File(p.get(0));
+      if (!file.isFile()) throw new RuntimeException(file.getName() + &quot; file not found&quot;);
+    } else {
+      file = new File(&quot;demo.bin&quot;);
+      if (!file.exists()) createDemo(file);
+    }
+
+    try {
+      raf = new RandomAccessFile(file, &quot;rw&quot;);
+      if (raf.length() &gt; 0) size = (int)((raf.length() - 1) / 16 + 1);
+    } catch (Exception e) { }
+
+    iniCharTable(Charset.defaultCharset());
+
+    BorderPane layout = new BorderPane();
+    stage.setScene(new Scene(layout, 700, 400));
+
+    TableView&lt;Integer&gt; tableView = new TableView&lt;&gt;();
+    tableView.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+
+    tableView.setItems(new ObservableListBase&lt;Integer&gt;() {
+      Integer value = Integer.valueOf(-1);
+
+      @Override
+      public int size() {
+        return size;
+      }
+
+      @Override
+      public Integer get(int index) {
+        if (index &lt; 0 || index &gt;= size()) throw new IndexOutOfBoundsException();
+        if (index != value.intValue()) {
+          value = Integer.valueOf(index);
+        }
+        return value;
+      }
+    });
+
+    TableColumn&lt;Integer, String&gt; column = new TableColumn&lt;&gt;(file.getName());
+
+    column.setCellValueFactory(cellData -&gt; {
+      return new ReadOnlyObjectWrapper&lt;String&gt;(createItem(cellData.getValue()));
+    });
+
+    Font font = Font.font(&quot;Monospaced&quot;);
+    Callback&lt;TableColumn&lt;Integer, String&gt;,TableCell&lt;Integer, String&gt;&gt; columnCellFactory = column.getCellFactory();
+    column.setCellFactory(col -&gt; {
+      TableCell&lt;Integer, String&gt; cell = columnCellFactory.call(col);
+      cell.setFont(font);
+      return cell;
+    });
+
+    tableView.getColumns().add(column);
+    tableView.getSelectionModel().selectFirst();
+    tableView.sortPolicyProperty().set(t -&gt; false);
+
+    layout.setCenter(tableView);
+
+    stage.setOnCloseRequest(event -&gt; {
+      try { raf.close(); } catch (Exception e) { }
+    });
+
+    stage.show();
+  }
+
+  StringBuilder sb = new StringBuilder();
+  char charTable[] = new char[224];
+  byte[] bytes = new byte[16];
+  char emp = &apos;\u0020&apos;, priv = &apos;\uE000&apos;, pnt = &apos;\u00B7&apos;;
+  char hexDigit[] = {
+    &apos;0&apos;, &apos;1&apos;, &apos;2&apos;, &apos;3&apos;, &apos;4&apos;, &apos;5&apos;, &apos;6&apos;, &apos;7&apos;, &apos;8&apos;, &apos;9&apos;, &apos;A&apos;, &apos;B&apos;, &apos;C&apos;, &apos;D&apos;, &apos;E&apos;, &apos;F&apos;
+  };
+  char charControl[] = {
+    &apos;\u0020&apos;, &apos;\u263A&apos;, &apos;\u263B&apos;, &apos;\u2665&apos;, &apos;\u2666&apos;, &apos;\u2663&apos;, &apos;\u2660&apos;, &apos;\u2022&apos;,
+    &apos;\u25D8&apos;, &apos;\u25CB&apos;, &apos;\u25D9&apos;, &apos;\u2642&apos;, &apos;\u2640&apos;, &apos;\u266A&apos;, &apos;\u266B&apos;, &apos;\u263C&apos;,
+    &apos;\u25BA&apos;, &apos;\u25C4&apos;, &apos;\u2195&apos;, &apos;\u203C&apos;, &apos;\u00B6&apos;, &apos;\u00A7&apos;, &apos;\u25AC&apos;, &apos;\u21A8&apos;,
+    &apos;\u2191&apos;, &apos;\u2193&apos;, &apos;\u2192&apos;, &apos;\u2190&apos;, &apos;\u221F&apos;, &apos;\u2194&apos;, &apos;\u25B2&apos;, &apos;\u25BC&apos;
+  };
+
+  boolean iniCharTable(Charset charset) {
+
+    CharsetDecoder decoder = charset.newDecoder();
+    boolean sbcs = decoder.maxCharsPerByte() == 1 &amp;&amp; decoder.averageCharsPerByte() == 1;
+    if (!sbcs) decoder = Charset.forName(&quot;Cp1252&quot;).newDecoder();
+    ByteBuffer bb = ByteBuffer.allocate(1);
+    CharBuffer cb = CharBuffer.allocate(1);
+    for (int i = 0; i &lt; 224; i++) {
+      try {
+        bb.put(0, (byte)(i + 0x20));
+        bb.position(0);
+        cb.position(0);
+        decoder.reset();
+        if (decoder.decode(bb, cb, true).isError()) charTable[i] = priv;
+        else charTable[i] = cb.get(0);
+      } catch (Exception e) { charTable[i] = priv; }
+    }
+    return sbcs;
+  }
+
+  String createItem(int value) {
+
+    sb.setLength(0);
+    int length = 0;
+    try { 
+      raf.seek(value * 16);
+      length = raf.read(bytes);
+    } catch (Exception e) { return null; }
+
+    for (int i = 28; i &gt;= 0; i-=4) {
+      sb.append(hexDigit[0x0F &amp; value &gt;&gt;&gt; i]);
+    }
+    sb.append(&apos;0&apos;).append(&apos;:&apos;).append(emp).append(emp);
+
+    for (int i = 0; i &lt; 16; i++) {
+      if (i &lt; length) {
+        sb.append(hexDigit[0x0F &amp; bytes[i] &gt;&gt; 4]);
+        sb.append(hexDigit[0x0F &amp; bytes[i]]);
+      } else { sb.append(emp).append(emp); }
+      sb.append(emp);
+      if (i == 7) sb.append(emp);
+    }
+    sb.append(emp);
+    for (int i = 0; i &lt; 16; i++) {
+      if (i &gt;= length) { sb.append(emp); continue; }
+      int code = 0xFF &amp; (int)bytes[i];
+      if (code &gt;= 0x00 &amp;&amp; code &lt; 0x20) { sb.append(charControl[code]); continue; }
+      char uc = charTable[code - 0x20];
+      if (uc &gt;= &apos;\u0000&apos; &amp;&amp; uc &lt; &apos;\u0020&apos;) sb.append(charControl[(int)uc]);
+      else if (uc == &apos;\u0085&apos; || uc == &apos;\u2028&apos; || uc == &apos;\u2029&apos;) sb.append(charControl[0x0A]);
+      else if (uc == priv) sb.append(pnt);
+      else sb.append(uc);
+    }
+    return sb.toString();
+  }
+
+  void createDemo(File file) {
+    try (RandomAccessFile rafd = new RandomAccessFile(file, &quot;rw&quot;)) {
+      rafd.setLength(0L);
+      for (int i = 0; i &lt; 256; i++) rafd.write((byte)i);
+      rafd.write(&quot;End&quot;.getBytes());
+    } catch (Exception e) { }
+  }
+}
+</pre>
+<p><b><a href="HexView.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
