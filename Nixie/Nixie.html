@@ -1,0 +1,196 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, Nixie, Clock, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, Nixie, Clock, Download, Source, Free">
+<title>Java nixie clock</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Java nixie clock</p>
+<a href="Nixie.jpg"><img src="Nixie.jpg" width="150" height="150" alt="Java nixie clock" title="Java nixie clock"></a>
+<p></p>
+<pre>
+-------------- NixieClock.java -----------------
+
+import java.util.*;
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.scene.canvas.*;
+import javafx.scene.shape.*;
+import javafx.scene.paint.*;
+import javafx.beans.property.*;
+import javafx.geometry.*;
+import javafx.animation.*;
+import javafx.util.*;
+
+public class NixieClock extends Application {
+
+  Nixie[] digits = new Nixie[8];
+  Calendar calendar = Calendar.getInstance();
+  int sl = -1;
+
+  @Override
+  public void start(Stage stage) {
+    BorderPane layout = new BorderPane();
+    stage.setScene(new Scene(layout, 300, 300));
+    HBox hBox = new HBox();
+    hBox.setAlignment(Pos.CENTER);
+
+    for (int i = 0; i &lt; digits.length; i++) {
+      digits[i] = new Nixie();
+      digits[i].sizeProperty().bind(layout.widthProperty().divide(digits.length));
+      hBox.getChildren().add(digits[i]);
+    }
+  
+    ColorPicker colorPicker = new ColorPicker();
+    colorPicker.setValue(digits[0].getColor());
+    colorPicker.setOnAction(ae -&gt; {
+      for (Nixie digit : digits) digit.setColor(colorPicker.getValue());
+    });
+ 
+    layout.setBackground(new Background(new BackgroundFill(Color.MIDNIGHTBLUE, null, null)));
+    layout.setCenter(hBox);
+    layout.setBottom(colorPicker);
+
+    Timeline timeline = new Timeline(
+      new KeyFrame(Duration.seconds(0), e -&gt; refresh()),
+      new KeyFrame(Duration.seconds(.5))
+    );
+    timeline.setCycleCount(Animation.INDEFINITE);
+    timeline.play();
+
+    stage.show();
+  }
+
+  void refresh() {
+    calendar.setTimeInMillis(System.currentTimeMillis());
+    int h = calendar.get(Calendar.HOUR_OF_DAY);
+    int m = calendar.get(Calendar.MINUTE);
+    int s = calendar.get(Calendar.SECOND);
+    char sep = (sl == s ? &apos;:&apos; : &apos; &apos;);
+    sl = s;
+    digits[0].set(h / 10);
+    digits[1].set(h % 10);
+    digits[2].set(sep);
+    digits[3].set(m / 10);
+    digits[4].set(m % 10);
+    digits[5].set(sep);
+    digits[6].set(s / 10);
+    digits[7].set(s % 10);
+  }
+
+  class Nixie extends Canvas {
+
+    private char ch = &apos; &apos;;
+    private GraphicsContext gc = getGraphicsContext2D();
+    private ObjectProperty&lt;Color&gt; colorProperty = new SimpleObjectProperty&lt;&gt;();
+    private DoubleProperty sizeProperty = new SimpleDoubleProperty();
+    private Paint pBorder = Color.BLACK;
+    private Paint pBackground = Color.web(&quot;505050&quot;);
+    private Paint pClamp = Color.web(&quot;858585&quot;);
+    private Paint pGrid = Color.web(&quot;A9A9A9&quot;);
+    private Paint pBody = new LinearGradient(0, 0, 0, 1, true, CycleMethod.NO_CYCLE,
+      new Stop[] { new Stop(0, Color.web(&quot;E6E6FF&quot;)), new Stop(1, Color.web(&quot;8F8FBA&quot;))}
+    );
+
+    public Nixie() {
+      gc.setLineCap(StrokeLineCap.ROUND);
+      gc.setLineJoin(StrokeLineJoin.ROUND);
+      gc.setFillRule(FillRule.EVEN_ODD);
+      colorProperty.addListener(obs -&gt; draw());
+      colorProperty.set(Color.web(&quot;F8F595&quot;));
+      sizeProperty().addListener(obs -&gt; {
+        setWidth(sizeProperty.get());
+        setHeight(sizeProperty.get() * 75 / 50);
+        draw();
+      });
+    }
+
+    public void set(int n) { set(n &gt;= 0 &amp;&amp; n &lt;= 9 ? (char)(&apos;0&apos; + n) : &apos;\0&apos;); }
+    public void set(char ch) {
+      if (this.ch != ch) {
+        this.ch = ch;
+        draw();
+      }
+    }
+ 
+    private void draw() {
+      double scale = Math.min(getWidth() / 50, getHeight() / 75);
+      gc.setTransform(scale, 0, 0, scale, 0, 0);
+      gc.clearRect(0, 0, 50, 75);
+      gc.setFill(pBackground);
+      gc.fillRect(6, 6, 36, 62);
+
+      if (ch != &apos; &apos;) {
+        boolean fill = false;
+        String p;
+        switch (ch) {
+          case &apos;0&apos;: p = &quot;M24,16 A12,21 0 1,0 24,58 A12,21 0 1,0 24,16&quot;; break;
+          case &apos;1&apos;: p = &quot;M24,16 V58&quot;; break;
+          case &apos;2&apos;: p = &quot;M12,28 A12,12 0 0,1 24,16 A12,12 0 0,1 36,28 C36,44 12,39 12,58 H36&quot;; break;
+          case &apos;3&apos;: p = &quot;M12,16 H36 L24,32 A13,13 0 0,1 24,58 A13,13 0 0,1 12,52&quot;; break;
+          case &apos;4&apos;: p = &quot;M36,46 H12 L30,16 V58&quot;; break;
+          case &apos;5&apos;: p = &quot;M36,16 H14 L12,35 A14,14 0 1,1 24,58 A14,14 0 0,1 12,52&quot;; break;
+          case &apos;6&apos;: p = &quot;M24,34 A12,12 0 1,0 24,58 A12,12 0 1,0 24,34 M14.3,39 L29,16&quot;; break;
+          case &apos;7&apos;: p = &quot;M12,16 H36 L22,58&quot;; break;
+          case &apos;8&apos;: p = &quot;M24,34 A12,12 0 1,0 24,58 A12,12 0 1,0 24,34 A9,9 0 1,0 24,16 A9,9 0 1,0 24,34&quot;; break;
+          case &apos;9&apos;: p = &quot;M24,16 A12,12 0 1,0 24,40 A12,12 0 1,0 24,16 M33.7,35 L19,58&quot;; break;
+          case &apos;:&apos;: p = &quot;M24,24 A1,1 0 1,0 24,28 A1,1 0 1,0 24,24 M24,46 A1,1 0 1,0 24,50 A1,1 0 1,0 24,46&quot;; fill = true; break;
+          default:  p = &quot;M12,16 H36 V58 H12 V16&quot;;
+        }
+        gc.setLineWidth(5);
+        gc.beginPath();
+        gc.appendSVGPath(p);
+        gc.setStroke(colorProperty.get());
+        if (fill) { gc.setFill(colorProperty.get()); gc.fill(); }
+        gc.stroke();
+      }
+
+      gc.setStroke(pGrid);
+      gc.setLineWidth(0.3);
+      for (int i = 11; i &lt; 67; i += 4) gc.strokeLine(6, i, 42, i);  //14
+      for (int i = 10; i &lt; 42; i += 4) gc.strokeLine(i, 6, i, 68);  //8
+
+      gc.beginPath();
+      gc.appendSVGPath(&quot;M1,17 Q1,1 24,1 Q47,1 47,17 V57 Q47,73 24,73 Q1,73 1,57 z&quot;);
+      gc.appendSVGPath(&quot;M6,17 Q6,6 24,6 Q42,6 42,17 V57 Q42,68 24,68 Q6,68 6,57 z&quot;);
+
+      gc.setFill(pBody);
+      gc.setStroke(pBorder);
+      gc.setLineWidth(.3);
+      gc.fill();
+      gc.stroke();
+
+      gc.setFill(pClamp);
+      gc.fillOval(20, 6, 8, 8);
+      gc.fillOval(20, 60, 8, 8);
+      gc.setFill(pBorder);
+      gc.fillOval(22, 8, 4, 4);
+      gc.fillOval(22, 62, 4, 4);
+    }
+
+    public Color getColor() { return colorProperty.get(); }
+    public void setColor(Color color) { colorProperty.set(color); }
+    public ObjectProperty&lt;Color&gt; colorProperty() { return colorProperty; }
+
+    public double getSize() { return sizeProperty.get(); }
+    public void setSize(double size) { sizeProperty.set(size); }
+    public DoubleProperty sizeProperty() { return sizeProperty; }
+
+    @Override public boolean isResizable() { return true; }
+    @Override public double prefWidth(double height) { return getWidth(); }
+    @Override public double prefHeight(double width) { return getHeight(); }
+  }
+ 
+}
+</pre>
+<p><b><a href="NixieClock.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
