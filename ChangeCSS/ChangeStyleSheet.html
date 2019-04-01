@@ -1,0 +1,110 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, css, StyleSheets, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, css, StyleSheets, Download, Source, Free">
+<title>Change StyleSheets</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Change Cascading Style Sheets (css)</p>
+<a href="ChangeStyleSheet.jpg"><img src="ChangeStyleSheet.jpg" width="150" height="150" alt="Change StyleSheets" title="Change StyleSheets"></a>
+<p>The JavaFX application will dynamically change (switch) between StyleSheets.</p>
+<pre>
+------------ ChangeStyleSheet.java -------------
+
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.layout.*;
+import javafx.scene.control.*;
+import javafx.geometry.*;
+import javafx.collections.*;
+import java.util.*;
+
+public class ChangeStyleSheet extends Application {
+
+  List&lt;String&gt; urls = new ArrayList&lt;&gt;();
+  ChoiceBox&lt;String&gt; cb = new ChoiceBox&lt;&gt;();
+
+  @Override
+  public void start(Stage stage) {
+    HBox layout = new HBox(10);
+    stage.setScene(new Scene(layout, 400, 150));
+
+    Class&lt;?&gt; skinClass = null;
+    try {
+      skinClass = Class.forName(&quot;com.sun.javafx.scene.control.skin.Utils&quot;);
+    } catch (Exception e) {}
+
+    addItem(null, null, &quot;Default&quot;);
+    addItem(skinClass, &quot;modena/modena.css&quot;, &quot;Modena&quot;);
+    addItem(skinClass, &quot;caspian/caspian.css&quot;, &quot;Caspian&quot;);
+    addItem(skinClass, &quot;modena/blackOnWhite.css&quot;, &quot;Modena-BlackOnWhite&quot;);
+    addItem(skinClass, &quot;modena/whiteOnBlack.css&quot;, &quot;Modena-WhiteOnBlack&quot;);
+    addItem(skinClass, &quot;modena/yellowOnBlack.css&quot;, &quot;Modena-YellowOnBlack&quot;);
+    addItem(getClass(), &quot;myCss.css&quot;, &quot;MyCss&quot;);
+
+    cb.getSelectionModel().selectFirst();
+    cb.getSelectionModel().selectedIndexProperty().addListener((observable, oldValue, newValue) -&gt; {
+      String url = urls.get(newValue.intValue());
+      if (url == null)
+        stage.getScene().getStylesheets().clear();
+      else
+        stage.getScene().getStylesheets().setAll(url);
+    });
+
+    Button button = new Button(&quot;Click Me&quot;);
+    button.setOnAction(event -&gt; {
+      Stage newStage = new Stage();
+      newStage.initOwner(stage);
+      VBox vb = new VBox(10);
+      newStage.setScene(new Scene(vb, 200, 200));
+      newStage.show();
+      vb.getChildren().addAll(new Label(&quot;Label&quot;), new TextField(&quot;TextField&quot;), /*new Spinner&lt;Integer&gt;(0, 10, 0),*/ new Button(&quot;Button&quot;), new CheckBox(&quot;CheckBox&quot;), new RadioButton(&quot;RadioButton&quot;));
+      vb.setAlignment(Pos.CENTER);
+
+      ListChangeListener&lt;String&gt; listener = c -&gt; {
+        if (c.next()) {
+          System.out.println(&quot;ListChangeListener &quot; + c.getList());
+          newStage.getScene().getStylesheets().setAll(stage.getScene().getStylesheets());
+        }
+      };
+
+      stage.getScene().getStylesheets().addListener(listener);
+
+      newStage.setOnCloseRequest(evt -&gt; stage.getScene().getStylesheets().removeListener(listener));
+
+      newStage.getScene().getStylesheets().setAll(stage.getScene().getStylesheets());
+
+    });
+
+    layout.getChildren().addAll(cb, button);
+    layout.setAlignment(Pos.CENTER);
+
+    stage.show();
+  }
+    
+  void addItem(Class&lt;?&gt; cl, String name, String desc) {
+    try {
+      //String url = (name == null ? null : cl.getResource(name).toExternalForm());
+      String url = (name == null ? null : cl.getResource("").toExternalForm() + name); // javafx-sdk-11.0.1
+      urls.add(url);
+      cb.getItems().add(desc);
+    } catch (Exception e) {}
+  }
+
+}
+
+----------------- myCss.css --------------------
+
+.root {
+  -fx-base: aquamarine;
+}
+</pre>
+<p><b><a href="ChangeStyleSheet.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
