@@ -1,0 +1,88 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, ANSI, Console, Download, Source, Free">
+<meta name="keywords" content="Java, ANSI, Console, Download, Source, Free">
+<title>Java ANSI console</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Java ANSI console</p>
+<a href="AnsiConsole.jpg"><img src="AnsiConsole.jpg" width="150" height="90" alt="Java ANSI console" title="Java ANSI console"></a>
+<p></p>
+<pre>
+--------------- AnsiConsole.java ---------------
+
+public class AnsiConsole {
+
+  static volatile double offs = 0, step1 = .15, step2 = .45;
+
+  public static void main(String[] args) {
+    if (System.console() == null) { System.err.println(&quot;Console is not available&quot;); return; }
+    double dblPI = 2 * Math.PI;
+    Runnable trg = () -&gt; {
+      while (!Thread.currentThread().isInterrupted()) {
+        if (offs &gt;= dblPI) offs = 0;
+        System.out.print(&quot;\033[s&quot;);   //save cursor position
+        System.out.print(&quot;\033[22;1H&quot;);
+        System.out.print(&quot;\033[1J&quot;);   //clear screen from cursor up
+        double angle1 = offs, angle2 = offs;
+        for (int r, c = 1; c &lt; 80; c++) {
+          if (angle1 &gt;= dblPI) angle1 = 0;
+          if (angle2 &gt;= dblPI) angle2 = 0;
+          r = 6 + (int)Math.round(Math.sin(angle1) * 4);
+          System.out.print(&quot;\033[&quot;+r+&quot;;&quot;+c+&quot;H&quot;+&quot;*&quot;);
+          r = 16 + (int)Math.round(Math.sin(angle2) * 4);
+          System.out.print(&quot;\033[&quot;+r+&quot;;&quot;+c+&quot;H&quot;+&quot;*&quot;);
+          angle1 += step1;
+          angle2 += step2;
+        }
+        System.out.print(&quot;\033[u&quot;);   //restore cursor position 
+        offs += .5;
+        try { Thread.sleep(500); } catch (Exception e) { Thread.currentThread().interrupt(); }
+      }
+    };
+    System.out.print(&quot;\033c&quot;);   //reset terminal to initial state
+    exit: for (;;) {
+      System.out.print(&quot;\033[22;1H&quot;);
+      System.out.print(&quot;\033[J&quot;);   //clear screen from cursor down
+      System.out.print(&quot;\033[24;1HPress enter key&quot;);
+      Thread thread = new Thread(trg);
+      thread.start();
+      System.console().readPassword();
+      thread.interrupt();
+      try { thread.join(); } catch (Exception e) { }
+      String inf = &quot;&quot;;
+      for(;;) {
+        System.out.print(&quot;\033[22;1H&quot;);
+        System.out.print(&quot;\033[J&quot;);   //clear screen from cursor down
+        System.out.print(&quot;\033[23;1Ht#-Period of top graph (1-9), b#-Period of bottom graph (1-9), q-Quit&quot;);
+        if (!inf.isEmpty()) System.out.print(&quot;\033[25;1H&quot; + (inf.length() &gt; 79 ? inf.substring(0, 79) : inf));
+        System.out.print(&quot;\033[24;1H&gt;&quot;);
+        String st = System.console().readLine();
+        String cmd = st.trim().toLowerCase();
+        inf = &quot;&quot;;
+        if (cmd.isEmpty()) break;
+        if (&quot;q&quot;.equals(cmd)) break exit;
+        if (cmd.length() &gt; 1 &amp;&amp; &quot;tb&quot;.indexOf(cmd.charAt(0)) &gt; -1) {
+          int sn = 0;
+          try { sn = Integer.parseInt(cmd.substring(1)); } catch (Exception e) { }
+          if (sn &gt; 0 &amp;&amp; sn &lt; 10) {
+            double step = sn / 20D + .05;
+            if (cmd.charAt(0) == &apos;t&apos;) step1 = step;
+            else step2 = step;
+            break;
+          } else inf = &quot;Invalid parameter&quot;;
+        }
+        else inf = &quot;Unknown command: &quot; + st.trim();
+      }
+    }
+  }
+}
+</pre>
+<p><b><a href="AnsiConsole.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
