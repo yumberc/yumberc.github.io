@@ -1,0 +1,224 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, TreeTableView, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, TreeTableView, Download, Source, Free">
+<title>Dynamically populating a TreeTableView</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Dynamically populating a TreeTableView.</p>
+<a href="FileBrowser.jpg"><img src="FileBrowser.jpg" width="150" height="150" alt="Dynamically populating a TreeTableView" title="Dynamically populating a TreeTableView"></a>
+<p>This code example will show the contents of the filesystem tree.</p>
+<pre>
+-------------- FileBrowser.java ----------------
+
+import java.io.*;
+import java.util.*;
+import java.text.*;
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.control.*;
+import javafx.scene.image.*;
+import javafx.scene.layout.*;
+import javafx.geometry.*;
+import javafx.event.*;
+import javafx.collections.*;
+import javafx.beans.property.*;
+import javafx.util.*;
+
+public class FileBrowser extends Application {
+
+  SimpleDateFormat dateFormat = new SimpleDateFormat();
+  NumberFormat numberFormat = NumberFormat.getIntegerInstance();
+
+  Label label;
+  TreeTableView&lt;File&gt; treeTableView;
+
+  @Override
+  public void start(Stage stage) {
+
+    label = new Label();
+    treeTableView = createFileBrowserTreeTableView();
+
+    BorderPane layout = new BorderPane();
+    layout.setCenter(treeTableView);
+    layout.setBottom(label);
+
+    stage.setScene(new Scene(layout, 600, 400));
+    stage.show();
+  }
+
+  private TreeTableView&lt;File&gt; createFileBrowserTreeTableView() {
+
+    FileTreeItem root = new FileTreeItem(new File(&quot;/&quot;));
+ 
+    final TreeTableView&lt;File&gt; treeTableView = new TreeTableView&lt;&gt;();
+
+    treeTableView.setShowRoot(true);
+    treeTableView.setRoot(root);
+    root.setExpanded(true);
+    treeTableView.setColumnResizePolicy(TreeTableView.CONSTRAINED_RESIZE_POLICY);
+
+    TreeTableColumn&lt;File, FileTreeItem&gt; nameColumn = new TreeTableColumn&lt;&gt;(&quot;Name&quot;);
+
+    nameColumn.setCellValueFactory(cellData -&gt; 
+      new ReadOnlyObjectWrapper&lt;FileTreeItem&gt;((FileTreeItem)cellData.getValue())
+    );
+
+    Image image1 = getImageResource(&quot;img/unknown-file-16x16.png&quot;);
+    Image image2 = getImageResource(&quot;img/folder-open-16x16.png&quot;);
+    Image image3 = getImageResource(&quot;img/folder-close-16x16.png&quot;);
+
+    nameColumn.setCellFactory(column -&gt; {
+      TreeTableCell&lt;File, FileTreeItem&gt; cell = new TreeTableCell&lt;File, FileTreeItem&gt;() {
+
+        ImageView imageView1 = new ImageView(image1);
+        ImageView imageView2 = new ImageView(image2);
+        ImageView imageView3 = new ImageView(image3);
+
+        @Override
+        protected void updateItem(FileTreeItem item, boolean empty) {
+          super.updateItem(item, empty);
+
+          if (item == null || empty || item.getValue() == null ) {
+            setText(null);
+            setGraphic(null);
+            setStyle(&quot;&quot;);
+          } else {
+            File f = item.getValue();
+            String text = f.getParentFile() == null ? File.separator : f.getName();
+            setText(text);
+            String style = item.isHidden() &amp;&amp; f.getParentFile() != null ? &quot;-fx-accent&quot; : &quot;-fx-text-base-color&quot;;
+            setStyle(&quot;-fx-text-fill: &quot; + style);
+            if (item.isLeaf()) {
+              setGraphic(imageView1);
+            } else {
+              setGraphic(item.isExpanded() ? imageView2 : imageView3);
+            }
+          }
+        }
+      };
+      return cell;
+    });
+
+    nameColumn.setPrefWidth(300);
+    nameColumn.setSortable(false);
+    treeTableView.getColumns().add(nameColumn);
+
+    TreeTableColumn&lt;File, String&gt; sizeColumn = new TreeTableColumn&lt;&gt;(&quot;Size&quot;);
+
+    sizeColumn.setCellValueFactory(cellData -&gt; {
+      FileTreeItem item = ((FileTreeItem)cellData.getValue());
+      String s = item.isLeaf() ? numberFormat.format(item.length()) : &quot;&quot;;
+      return new ReadOnlyObjectWrapper&lt;String&gt;(s);
+    });
+
+    Callback&lt;TreeTableColumn&lt;File, String&gt;,TreeTableCell&lt;File, String&gt;&gt; sizeCellFactory = sizeColumn.getCellFactory();
+    sizeColumn.setCellFactory(column -&gt; {
+      TreeTableCell&lt;File, String&gt; cell = sizeCellFactory.call(column);
+      cell.setAlignment(Pos.CENTER_RIGHT);
+      cell.setPadding(new Insets(0, 8, 0, 0));
+      return cell;
+    });
+
+    sizeColumn.setPrefWidth(100);
+    sizeColumn.setSortable(false);
+    treeTableView.getColumns().add(sizeColumn);
+
+    TreeTableColumn&lt;File, String&gt; lastModifiedColumn = new TreeTableColumn&lt;&gt;(&quot;Last Modified&quot;);
+    lastModifiedColumn.setCellValueFactory(cellData -&gt; {
+      FileTreeItem item = (FileTreeItem)cellData.getValue();
+      String s = dateFormat.format(new Date(item.lastModified()));
+      return new ReadOnlyObjectWrapper&lt;String&gt;(s);
+    });
+
+    lastModifiedColumn.setPrefWidth(130);
+    lastModifiedColumn.setSortable(false);
+    treeTableView.getColumns().add(lastModifiedColumn);
+
+    treeTableView.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -&gt; {
+      label.setText(newValue != null ? newValue.getValue().getAbsolutePath() : &quot;&quot;);
+    });
+
+    treeTableView.getSelectionModel().selectFirst();
+
+    return treeTableView;
+  }
+
+  private Image getImageResource(String name) {
+    Image img = null;
+    try { img = new Image(getClass().getResourceAsStream(name)); } catch (Exception e) {}
+    return img;
+  }
+
+  private class FileTreeItem extends TreeItem&lt;File&gt; {
+    private boolean expanded = false;
+    private boolean directory;
+    private boolean hidden;
+    private long length;
+    private long lastModified;
+
+    FileTreeItem(File file) {
+      super(file);
+      EventHandler&lt;TreeModificationEvent&lt;File&gt;&gt; eventHandler = event -&gt; changeExpand();
+      addEventHandler(TreeItem.branchExpandedEvent(), eventHandler);
+      addEventHandler(TreeItem.branchCollapsedEvent(), eventHandler);
+
+      directory = getValue().isDirectory();
+      hidden = getValue().isHidden();
+      length = getValue().length();
+      lastModified = getValue().lastModified();
+    }
+
+    private void changeExpand() {
+      if (expanded != isExpanded()) {
+        expanded = isExpanded();
+        if (expanded) {
+          createChildren();
+        } else {
+          getChildren().clear();
+        }
+        if (getChildren().size() == 0)
+          Event.fireEvent(this, new TreeItem.TreeModificationEvent&lt;&gt;(TreeItem.valueChangedEvent(), this, getValue()));
+      }
+    }
+
+    @Override
+    public boolean isLeaf() {
+      return !isDirectory();
+    }
+
+    public boolean isDirectory() { return directory; }
+    public long lastModified() { return lastModified; }
+    public long length() { return length; }
+    public boolean isHidden() { return hidden; }
+
+    private void createChildren() {
+      if (isDirectory() &amp;&amp; getValue() != null) {
+        File[] files = getValue().listFiles();
+        if (files != null &amp;&amp; files.length &gt; 0) {
+          getChildren().clear();
+          for (File childFile : files) {
+            getChildren().add(new FileTreeItem(childFile));
+          }
+          getChildren().sort((ti1, ti2) -&gt; {
+            return ((FileTreeItem)ti1).isDirectory() == ((FileTreeItem)ti2).isDirectory() ?
+              ti1.getValue().getName().compareToIgnoreCase(ti2.getValue().getName()) :
+              ((FileTreeItem)ti1).isDirectory() ? -1 : 1;
+          });
+        }
+      }
+    }
+  }  //end class FileTreeItem
+
+}  //end class FileBrowser
+
+</pre>
+<p><b><a href="FileBrowser.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
