@@ -1,0 +1,428 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, Modbus, TCP/IP, PLC, Simulator, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, Modbus, TCP/IP, PLC, Simulator, Download, Source, Free">
+<title>Modbus TCP PLC Simulator</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Modbus TCP PLC Simulator</p>
+<a href="ModbusTCP.jpg"><img src="ModbusTCP.jpg" width="150" height="150" alt="Modbus TCP PLC Simulator" title="Modbus TCP PLC Simulator"></a>
+<p></p>
+<pre>
+---------------- ModbusTCP.java ----------------
+
+import java.util.*;
+import java.util.concurrent.*;
+import java.io.*;
+import java.net.*;
+
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.control.*;
+import javafx.scene.control.TableColumn.*;
+import javafx.scene.layout.*;
+import javafx.scene.input.*;
+import javafx.scene.text.*;
+import javafx.scene.paint.*;
+import javafx.collections.*;
+import javafx.collections.transformation.*;
+import javafx.beans.property.*;
+import javafx.geometry.*;
+
+public class ModbusTCP extends Application {
+
+  int port = 502;
+  int timeout = 60_000;
+  boolean debug = false;
+
+  ExecutorService executorService;
+  ServerSocket serverSocket;
+  Socket socket;
+  ObservableList&lt;Item&gt; data;
+  SortedList&lt;Item&gt; sortedList;
+  TableView&lt;Item&gt; tableView;
+  Object sync = new Object();
+  volatile boolean available = true;
+
+  @Override
+  public void start(Stage stage) {
+
+    BorderPane layout = new BorderPane();
+    Scene scene = new Scene(layout, 500, 300);
+    stage.setScene(scene);
+    tableView = new TableView&lt;&gt;();
+    tableView.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+    tableView.setPlaceholder(new Label(&quot;Waiting...&quot;));
+    TableColumn&lt;Item, Item&gt; column = new TableColumn&lt;&gt;();
+    tableView.widthProperty().addListener((ov, t, t1) -&gt; {
+      Pane header = (Pane)tableView.lookup(&quot;TableHeaderRow&quot;);
+      if (header != null &amp;&amp; header.isVisible()) {
+        header.setMaxHeight(0); header.setMinHeight(0); header.setPrefHeight(0);
+        header.setVisible(false); header.setManaged(false);
+      }
+    });
+    tableView.setOnMousePressed(me -&gt; {
+      if (me.isPrimaryButtonDown() &amp;&amp; me.getClickCount() == 2) {
+        int ind = tableView.getSelectionModel().getSelectedIndex();
+        if (ind &gt;= 0) editItem(stage, ind);
+      }
+    });
+    tableView.setOnKeyPressed(ke -&gt; {
+      if (ke.getCode() == KeyCode.DELETE) {
+        synchronized (sync) { data.clear(); }
+      } else if (ke.getCode() == KeyCode.ENTER) {
+        int ind = tableView.getSelectionModel().getSelectedIndex();
+        if (ind &gt;= 0) editItem(stage, ind);
+      } else if (ke.getCode() == KeyCode.F5 &amp;&amp; ke.isAltDown()) {
+        debug = !debug;
+        System.out.println(&quot;Debug: &quot; + (debug ? &quot;on&quot; : &quot;off&quot;));
+      }
+    });
+    column.setCellValueFactory(cellData -&gt; {
+      return new ReadOnlyObjectWrapper&lt;Item&gt;(cellData.getValue());
+    });
+    Font font = Font.font(&quot;Monospaced&quot;);
+    Background bg  = new Background(new BackgroundFill(Color.rgb(255, 255, 255, 0.5), null, null));
+    Background bg0 = new Background(new BackgroundFill(Color.rgb(235, 235, 235, 0.5), null, null));
+    Background bg1 = new Background(new BackgroundFill(Color.rgb(210, 210, 210, 0.5), null, null));
+    Background bg3 = new Background(new BackgroundFill(Color.rgb(170, 170, 170, 0.5), null, null));
+    Background bg4 = new Background(new BackgroundFill(Color.rgb(130, 130, 130, 0.5), null, null));
+    column.setCellFactory(col -&gt; {
+      TableCell&lt;Item, Item&gt; cell = new TableCell&lt;Item, Item&gt;() {
+
+        @Override
+        protected void updateItem(Item item, boolean empty) {
+          super.updateItem(item, empty);
+          if (item == null || empty ) {
+            setText(null);
+            setBackground(bg);
+          } else {
+            setFont(font);
+            setText(item.toString());
+            setBackground(item.entity == 0 ? bg0 : item.entity == 1 ? bg1 :
+                          item.entity == 3 ? bg3 : item.entity == 4 ? bg4 : bg);
+          }
+        }
+      };
+      return cell;
+    });
+    tableView.getColumns().add(column);
+    data = FXCollections.synchronizedObservableList(FXCollections.observableArrayList());
+    sortedList = new SortedList&lt;&gt;(data);
+    tableView.setItems(sortedList);
+    sortedList.comparatorProperty().bind(new SimpleObjectProperty&lt;Comparator&lt;Item&gt;&gt;((o1, o2) -&gt; o1.compareTo(o2)));
+    tableView.sortPolicyProperty().set(t -&gt; false);
+    layout.setCenter(tableView);
+    stage.show();
+    startServer();
+    stage.setOnCloseRequest(event -&gt; { stopServer(); });
+  }
+
+  void startServer() {
+    executorService = Executors.newCachedThreadPool();
+    try {
+      serverSocket = new ServerSocket(port);
+      executorService.submit(() -&gt; {
+        try {
+          while (!Thread.currentThread().isInterrupted()) {
+            socket = serverSocket.accept();
+            if (!available) {
+              try { socket.close(); } catch (Exception e) { }
+              continue;
+            }
+            available = false;
+            socket.setSoTimeout(timeout);
+            executorService.submit(() -&gt; {
+              InputStream inStream = null;
+              OutputStream outStream = null;
+              if (debug) System.out.println(&quot;Connected: &quot;+socket.toString());
+              try {
+                inStream = socket.getInputStream();
+                outStream = socket.getOutputStream();
+                byte[] inBuffer = new byte[1024];
+                while (!Thread.currentThread().isInterrupted()) {
+                  int n = inStream.read(inBuffer);
+                  if (n &lt; 0 || n == inBuffer.length) break;
+                  if (debug) System.out.println(&quot; Read:&quot; + hexStr(inBuffer, n));
+                  byte outBuffer[] = handle(inBuffer, n);
+                  if (debug) System.out.println(&quot;Write:&quot; + hexStr(outBuffer, outBuffer.length));
+                  outStream.write(outBuffer);
+                }
+              } catch (SocketException e) {
+              } catch (SocketTimeoutException e) {
+                if (debug) System.out.println(&quot;Connection: timeout&quot;);
+              } catch (Exception e) {
+                e.printStackTrace();
+              } finally {
+                if (inStream != null) try { inStream.close(); } catch (Exception e) { }
+                if (outStream != null) try { outStream.close(); } catch (Exception e) { }
+                if (socket != null &amp;&amp; !socket.isClosed()) try { socket.close(); } catch (Exception e) { }
+                if (debug) System.out.println(&quot;Connection: close&quot;);
+                available = true;
+              }
+            });
+          }
+        } catch (SocketException e) {
+        } catch (Exception e) {
+          e.printStackTrace();
+        } finally {
+          stopServer();
+        }
+      });
+    } catch (Exception e) { e.printStackTrace(); }
+  }
+
+  public String hexStr(byte[] bytes, int len) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i &lt; len; i++) sb.append(String.format(&quot; %02X&quot;, bytes[i]));
+    sb.append(&quot; (&quot; + len + &quot;)&quot;);
+    return sb.toString();
+  }
+
+  public void stopServer() {
+    if (serverSocket != null &amp;&amp; !serverSocket.isClosed())
+      try { serverSocket.close(); } catch (Exception e) { }
+    executorService.shutdownNow();
+    if (socket != null &amp;&amp; !socket.isClosed())
+      try { socket.close(); } catch (Exception e) { }
+  }
+
+  byte[] handle(byte[] buf, int n) {
+    if (n &lt; 12) return err(new byte[20], 4);
+    int length = toInt(buf[4], buf[5]);
+    int unit = toInt(buf[6]);
+    int function = toInt(buf[7]);
+    int address = toInt(buf[8], buf[9]);
+    int value = toInt(buf[10], buf[11]);
+    if (function &gt;= 1 &amp;&amp; function &lt;= 6) {
+      if (length != 6) return err(buf, 4);
+      if (function == 1 || function == 2) {  //Read Coil Status (1), Read Discrete Inputs (2)
+        if (value &gt; 2000 || address + value &gt; 0xFFFF + 1) return err(buf, 2);
+        int num = (value == 0 ? 0 : (value - 1) / 8 + 1);
+        byte[] ret = new byte[9 + num];
+        ret[0] = buf[0];
+        ret[1] = buf[1];
+        ret[5] = (byte)(3 + num);
+        ret[6] = (byte)unit;
+        ret[7] = (byte)function;
+        ret[8] = (byte)num;
+        for (int i = 0; i &lt; value; i++) {
+          int ind = 9 + i / 8;
+          if (i % 8 == 0) ret[ind] = 0;
+          if (getValue(unit, function == 1 ? 0 : 1, address + i) &gt; 0) {
+            int mask = 1 &lt;&lt; (i % 8);
+            ret[ind] |= mask;
+          }
+        }
+        return ret;
+      } else if (function == 3 || function == 4) {  //Read Holding Registers (3), Read Input Registers (4)
+        if (value &gt; 125 || address + value &gt; 0xFFFF + 1) return err(buf, 2);
+        byte[] ret = new byte[9 + value + value];
+        ret[0] = buf[0];
+        ret[1] = buf[1];
+        ret[5] = (byte)(3 + value + value);
+        ret[6] = (byte)unit;
+        ret[7] = (byte)function;
+        ret[8] = (byte)(value + value);
+        for (int i = 0; i &lt; value; i++) {
+          int v = getValue(unit, function == 3 ? 4 : 3, address + i);
+          ret[9 + i + i] = (byte)(0xFF &amp; (v &gt;&gt; 8));
+          ret[10 + i + i] = (byte)(0xFF &amp; v);
+        }
+        return ret;
+      } else if (function == 5) {   //Write Single Coil (5)
+        setValue(unit, 0, address, (value &amp; 0xFF00) == 0xFF00 ? 1 : 0);
+      } else {   /*function == 6*/  //Write Single Register (6)
+        setValue(unit, 4, address, value);
+      }
+    } else if (function == 15 || function == 16) {
+      if (n &lt; 13) return err(buf, 3);
+      int quantity = toInt(buf[12]);
+      if (n &lt; quantity + 12 || length != quantity + 7) return err(buf, 3);
+      if (function == 15) {   //Write Multiple Coils (15)
+        if (value &gt; 2000 || address + value &gt; 0xFFFF + 1) return err(buf, 2);
+        if (value &gt; 0 &amp;&amp; quantity &lt; value / 8 + 1) return err(buf, 3);
+        for (int i = 0; i &lt; value; i++) {
+          int data = toInt(buf[13 + i / 8]);
+          int mask = 1 &lt;&lt; (i % 8);
+          setValue(unit, 0, address + i, (data &amp; mask) &gt; 0 ? 1 : 0);
+        }
+      } else {  /*function == 16*/  //Write Multiple Registers (16)
+        if (value &gt; 125 || address + value &gt; 0xFFFF + 1) return err(buf, 2);
+        if (value &gt; 0 &amp;&amp; quantity &lt; value + value) return err(buf, 3);
+        for (int i = 0; i &lt; value; i++) {
+          setValue(unit, 4, address + i, toInt(buf[13 + i + i], buf[14 + i + i]));
+        }
+      }
+    } else return err(buf, 1);
+    /*function 5, 6, 15, 16*/
+    return new byte[] { buf[0], buf[1], 0, 0, 0, 6, buf[6], buf[7], buf[8], buf[9], buf[10], buf[11] };
+  }
+
+  int toInt(byte b) { return 0xFF &amp; (int)b; }
+  int toInt(byte b1, byte b2) { return (toInt(b1) &lt;&lt; 8) + toInt(b2); }
+
+  byte[] err(byte[] buf, int c) {
+    return new byte[] { buf[0], buf[1], 0, 0, 0, 3, buf[6], (byte)(0x80 | buf[7]), (byte)c };
+  }
+
+  void setValue(int unit, int entity, int address, int value) {
+    Item item = new Item(unit, entity, address, value);
+    updateItem(item, true);
+  }
+
+  int getValue(int unit, int entity, int address) {
+    Item item = new Item(unit, entity, address, 0);
+    return updateItem(item, false);
+  }
+
+  int updateItem(Item item, boolean set) {
+    int value;
+    synchronized (sync) {
+      int sel = tableView.getSelectionModel().getSelectedIndex();
+      value = item.value;
+      int i = Collections.binarySearch(sortedList, item);
+      if (i &lt; 0) {
+        data.add(item);
+      } else {
+        i = sortedList.getSourceIndex(i);
+        item = data.get(i);
+        if (set) item.value = value;
+        else {
+          value = item.value;
+          if (item.change) {
+            if (item.entity == 0 || item.entity == 1) item.value = (value &lt; 1 ? 1 : 0);
+            else item.value = (value &gt;= 0xFFFF ? 0 : value + 1);
+          }
+        }
+        data.set(i, item);
+      }
+      tableView.getSelectionModel().select(sel &lt; 0 ? 0 : sel);
+    } 
+    return value;
+  }
+
+  void editItem(Window owner, int itm) {
+    Item item = data.get(sortedList.getSourceIndex(itm));
+    Dialog&lt;ButtonType&gt; dialog = new Dialog&lt;&gt;();
+    dialog.initOwner(owner);
+    dialog.initStyle(StageStyle.UTILITY);
+    dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+    GridPane grid = new GridPane();
+    grid.setHgap(10);
+    grid.setVgap(10);
+    grid.setPadding(new Insets(20, 10, 10, 10));
+    TextField textField = new TextField(Integer.toString(item.value));
+    textField.textProperty().addListener((observable, oldValue, newValue) -&gt; {
+      if (newValue.isEmpty()) return; 
+      try {
+        Integer.valueOf(newValue);
+      } catch (Exception e) {
+        ((StringProperty)observable).setValue(oldValue);
+      }
+    });
+    CheckBox checkBox = new CheckBox();
+    checkBox.setSelected(item.change);
+    grid.add(new Label(&quot;Value:&quot;), 0, 0);
+    grid.add(textField, 1, 0);
+    grid.add(new Label(&quot;Auto change:&quot;), 0, 1);
+    grid.add(checkBox, 1, 1);
+    dialog.getDialogPane().setContent(grid);
+    Platform.runLater(() -&gt; textField.requestFocus());
+    Optional&lt;ButtonType&gt; result = dialog.showAndWait();
+    if (result.isPresent() &amp;&amp; result.get() == ButtonType.OK) {
+      int value = 0;
+      try {
+        value = Integer.valueOf(textField.getText());
+      } catch (Exception e) { }
+      synchronized (sync) {
+        if (item.entity == 0 || item.entity == 1) item.value = (value &lt; 1 ? 0 : 1);
+        else item.value = (value &gt; 0xFFFF ? 0xFFFF : (value &lt; 0 ? 0 : value));
+        item.change = checkBox.isSelected();
+        data.set(sortedList.getSourceIndex(itm), item);
+        tableView.getSelectionModel().select(itm);
+      }
+    }
+  }
+
+  class Item implements Comparable&lt;Item&gt; {
+    int unit, entity, address, value, index;
+    boolean change = false;
+
+    Item(int unit, int entity, int address, int value) {
+      this.unit = unit;
+      this.entity = entity;
+      this.address = address;
+      this.value = value;
+      this.index = (unit &lt;&lt; 20) | (entity &lt;&lt; 16) | address;
+    }
+
+    public int compareTo(Item o) {
+      return (this.index &lt; o.index) ? -1 : ((this.index == o.index) ? 0 : 1);
+    }
+
+    @Override
+    public String toString() {
+      String s1 = (entity == 0 || entity == 1 ? &quot;1 bit&quot; : &quot;16 bit&quot;);
+      int val = (entity == 0 || entity == 1 ? (value &lt; 1 ? 0 : 1) : value);
+      String s2 = (entity == 1 || entity == 3 ? &quot;r&quot; : &quot;w/r&quot;);
+      String s3 = (change ? &quot;a&quot; : &quot;&quot;);
+      int addr = entity * 100_000 + address + 1;
+      return String.format(&quot;%3d  %6s  %3s  %06d  %05d  %5d  %1s&quot;, unit, s1, s2, addr, address, val, s3);
+    }
+  }
+}
+
+------------------ Test.java -------------------
+
+import java.io.*;
+import java.net.*;
+import java.lang.Thread.*;
+
+public class Test {
+
+  public static void main(String[] args) {
+
+    Socket s = null;
+    OutputStream os = null;
+    InputStream is = null;
+    try {
+      s = new Socket(&quot;127.0.0.1&quot;, 502);
+      s.setSoTimeout(2_000);
+      os = s.getOutputStream();
+      is = s.getInputStream();
+      byte[][] osbuf = new byte[][] {
+        {0, 0, 0, 0, 0, 6, 0,  1, 0,  0, 0,  1},
+        {0, 0, 0, 0, 0, 6, 0,  2, 0,  0, 0,  1},
+        {0, 0, 0, 0, 0, 6, 0,  3, 0,  0, 0,  1},
+        {0, 0, 0, 0, 0, 6, 0,  4, 0,  0, 0,  1},
+        {0, 0, 0, 0, 0, 6, 0,  5, 0, 10, (byte)255, 0},
+        {0, 0, 0, 0, 0, 6, 0,  6, 0, 10, 0, 10},
+        {0, 0, 0, 0, 0, 8, 0, 15, 0, 20, 0,  1, 1, 1},
+        {0, 0, 0, 0, 0, 9, 0, 16, 0, 20, 0,  1, 2, 0, 20}
+      };
+      byte[] inbuf = new byte[100];
+      for (int i = 0; i &lt; osbuf.length; i++) {
+        os.write(osbuf[i]);
+        if (is.read(inbuf) &lt; 0) throw new Exception();
+        Thread.sleep(200);
+      }
+    } catch (Exception e) {
+      e.printStackTrace();
+    } finally {
+      if (os != null) try { os.close(); } catch (Exception e) { }
+      if (is != null) try { is.close(); } catch (Exception e) { }
+      if (s != null &amp;&amp; !s.isClosed()) try { s.close(); } catch (Exception e) { }
+    }
+  }
+}
+</pre>
+<p><b><a href="ModbusTCP.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
