@@ -1,0 +1,781 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, Editor, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, Editor, Download, Source, Free">
+<title>Editor.java</title>
+</head>
+<body bgcolor="#FFFFFF">
+<pre>
+import java.io.*;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.function.*;
+import java.nio.file.*;
+import java.nio.charset.Charset;
+import javax.xml.stream.*;
+
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.scene.input.*;
+import javafx.scene.paint.*;
+import javafx.scene.shape.*;
+import javafx.scene.canvas.*;
+import javafx.beans.property.*;
+import javafx.beans.value.*;
+import javafx.geometry.*;
+import javafx.event.*;
+import javafx.collections.*;
+
+public class Edit extends Application {
+
+  @Override
+  public void start(Stage stage) throws Exception {
+    BorderPane layout = new BorderPane();
+    Scene scene = new Scene(layout);
+    stage.setScene(scene);
+    Scheme scheme = new Scheme(stage);
+    test(scheme);
+    scheme.read();
+    layout.setCenter(scheme.getScrollPane());
+    stage.setOnCloseRequest(event -&gt; { if (!scheme.saveDialog()) event.consume(); });
+    stage.show();
+  }
+
+  public static boolean validName(String name) { return name != null &amp;&amp; name.matches(&quot;[a-zA-Z]|[a-zA-Z_][a-zA-Z0-9_]+&quot;); }
+
+  Future&lt;?&gt; future = null;
+  int angle = 0;
+  void test(Scheme scheme) {
+    File file = new File(scheme.getXmlName().concat(&quot;.xml&quot;));
+    if (!file.exists()) {
+      StringBuilder sb = new StringBuilder();
+      sb.append(&quot;&lt;?xml version=\&quot;1.0\&quot;?&gt;\n&quot;);
+      sb.append(&quot;&lt;scheme width=\&quot;500\&quot; height=\&quot;400\&quot;&gt;\n&quot;);
+      //sb.append(&quot; &lt;element clss=\&quot;SETest\&quot;/&gt;\n&quot;);
+      sb.append(&quot; &lt;schemeElement clss=\&quot;Edit$SELabel\&quot; name=\&quot;L1\&quot; layoutX=\&quot;120.0\&quot; layoutY=\&quot;100.0\&quot; text=\&quot;Label\&quot; bgFill=\&quot;0xf6f6b6ff\&quot;/&gt;\n&quot;);
+      sb.append(&quot; &lt;schemeElement clss=\&quot;Edit$SEButton\&quot; name=\&quot;B1\&quot; layoutX=\&quot;250.0\&quot; layoutY=\&quot;150.0\&quot; text=\&quot;Button\&quot;/&gt;\n&quot;);
+      sb.append(&quot;&lt;/scheme&gt;\n&quot;);
+      try { Files.write(file.toPath(), sb.toString().getBytes()); } catch (Exception e) { }
+      scheme.setModifyed(true);
+    }
+    scheme.setOnAction((element, value) -&gt; {
+      if (!element.equals(&quot;B1.button&quot;)) return;
+      if (future != null &amp;&amp; !future.isDone()) {
+        future.cancel(true);
+      } else {
+        ExecutorService executorService = Executors.newSingleThreadExecutor((runnable) -&gt; {
+          Thread thread = new Thread(runnable);
+          thread.setDaemon(true);
+          return thread;
+        });
+        future = executorService.submit(() -&gt; {
+          for (;;) {
+            angle%=360;
+            Platform.runLater(() -&gt; {
+              double x = 0, y = 0;
+              try { x = Double.parseDouble(scheme.get(&quot;B1.layoutX&quot;)); } catch (Exception e) { }
+              try { y = Double.parseDouble(scheme.get(&quot;B1.layoutY&quot;)); } catch (Exception e) { }
+              scheme.set(&quot;L1.layoutX&quot;, Double.toString(x + 100 * Math.sin(Math.toRadians(angle))));
+              scheme.set(&quot;L1.layoutY&quot;, Double.toString(y + 100 * Math.cos(Math.toRadians(angle))));
+              scheme.set(&quot;L1.rotate&quot;, Double.toString(360 - angle));
+              scheme.set(&quot;L1.text&quot;, Double.toString(angle));
+            });
+            angle++;
+            try { Thread.sleep(15); } catch (Exception e) { break; }
+          }
+        });
+        executorService.shutdown();
+      }
+    });
+  }
+
+  public class Scheme extends Region {
+    protected ArrayList&lt;String&gt; listSE = new ArrayList&lt;&gt;(Arrays.asList(
+      &quot;Edit$SELabel&quot;,
+      &quot;Edit$SEButton&quot;
+    ));
+    protected ObservableList&lt;Label&gt; labelSE;
+    protected Stage stage;
+    protected String name = null;
+    protected Charset charset = Charset.defaultCharset(); //Charset.forName(&quot;US-ASCII&quot;);
+    protected boolean modifyed = false;
+    protected double gridSize = 10;
+    protected ContextMenu contextMenu = new ContextMenu();
+    protected MenuItem miNew, miSelect, miDelete, miToFront, miToBack, miProperty;
+    protected MouseEvent cMouseEvent;
+    protected SchemeElement editableElement;
+    protected ScrollPane scrollPane;
+    protected String xmlName = &quot;scheme&quot;;
+
+    public Scheme(Stage stage, SchemeElement... children) {
+      this.stage = Objects.requireNonNull(stage, &quot;Stage cannot be null.&quot;);
+      addSE(children);
+      stage.setFullScreenExitKeyCombination(KeyCombination.NO_MATCH);
+      stage.addEventFilter(KeyEvent.KEY_PRESSED, keyEvent -&gt; {
+        if (keyEvent.getCode() == KeyCode.F5) stage.setFullScreen(!stage.isFullScreen());
+      });
+      Paint background = Paint.valueOf(&quot;linear-gradient(from 0.0% 0.0% to 0.0% 100.0%, 0x90c1eaff 0.0%, 0x5084b0ff 100.0%)&quot;);
+      setBackground(new Background(new BackgroundFill(background, null, null)));
+      miNew = new MenuItem(&quot;New...&quot;);
+      miNew.setOnAction(ae -&gt; { newElement(cMouseEvent.getX(), cMouseEvent.getY()); });
+      miSelect = new MenuItem(&quot;Select&quot;);
+      miSelect.setOnAction(ae -&gt; { setEditableElement(cMouseEvent.getSource()); });
+      miDelete = new MenuItem(&quot;Delete&quot;);
+      miDelete.setOnAction(ae -&gt; { deleteSE((SchemeElement)cMouseEvent.getSource()); modifyed = true; });
+      miToFront = new MenuItem(&quot;To Front&quot;);
+      miToFront.setOnAction(ae -&gt; { ((Node)cMouseEvent.getSource()).toFront(); });
+      miToBack = new MenuItem(&quot;To Back&quot;);
+      miToBack.setOnAction(ae -&gt; { ((Node)cMouseEvent.getSource()).toBack(); });
+      miProperty = new MenuItem(&quot;Property...&quot;);
+      miProperty.setOnAction(ae -&gt; { editProperty((SchemeElement)cMouseEvent.getSource()); });
+      setOnMousePressed(me -&gt; { mousePressed(me); });
+    }
+
+    public ScrollPane getScrollPane() {
+      if (scrollPane == null) {
+        scrollPane = new ScrollPane(this);
+        scrollPane.viewportBoundsProperty().addListener((v, o, n) -&gt; {
+          Platform.runLater(() -&gt; requestLayout());
+        });
+      }
+      return scrollPane;
+    }
+
+    @Override protected double computePrefWidth(double width) {
+      if (scrollPane == null) return super.computePrefWidth(width);
+      return Math.max(scrollPane.getViewportBounds().getWidth(), super.computePrefWidth(width));
+    }
+    @Override protected double computePrefHeight(double height) {
+      if (scrollPane == null) return super.computePrefHeight(height);
+      return Math.max(scrollPane.getViewportBounds().getHeight(), super.computePrefHeight(height));
+    }
+
+    public void addSE(SchemeElement... children) {
+      for (SchemeElement se : children) {
+        if (se != null) {
+          try {
+            ElementProperty ep = se.getProp().get(&quot;name&quot;);
+            if (ep != null) {
+              String nn = ep.toString();
+              AbstractMap.SimpleEntry&lt;Integer, String&gt; en = checkNameSE(nn);
+              if (en.getKey().intValue() &gt; 0) throw new RuntimeException(en.getValue());
+            }
+            getChildren().add(se);
+            se.setScheme(this);
+          } catch (Exception e) { e.printStackTrace(); }
+        }
+      }
+    }
+
+    public SchemeElement getSE(String name) {
+      if (name != null &amp;&amp; !name.isEmpty()) {
+        for (Node node : getChildren()) {
+          if (name.equals(((SchemeElement)node).getName())) return (SchemeElement)node;
+        }
+      }
+      return null;
+    }
+
+    public boolean containsSE(String name) { return getSE(name) != null; }
+    public void deleteSE(SchemeElement se) {
+      getChildren().remove(se);
+      se.setScheme(null);
+    }
+    //public void setNameSE(SchemeElement se, String name) { System.out.println(&quot;setNameSE &quot; + name); }
+
+    public void setEditableElement(Object element) {
+      if (editableElement != null) {
+        editableElement.setEditing(false);
+        editableElement = null;
+      }
+      if (element != null &amp;&amp; element instanceof SchemeElement) {
+        editableElement = (SchemeElement)element;
+        editableElement.setEditing(true);
+        editableElement.toFront();
+        modifyed = true;
+      }
+    }
+
+    public void mousePressed(MouseEvent me) {
+      cMouseEvent = me;
+      if (contextMenu.isShowing()) contextMenu.hide();
+      setEditableElement(me.isPrimaryButtonDown() ? me.getSource() : null);
+      if (me.isSecondaryButtonDown()) {
+        if (me.getSource() instanceof SchemeElement) {
+          contextMenu.getItems().setAll(miSelect, miToFront, miToBack, miDelete, miProperty);
+          miProperty.setDisable(((SchemeElement)me.getSource()).getProp().isEmpty());
+          ArrayList&lt;MenuItem&gt; itemList = ((SchemeElement)me.getSource()).getItems();
+          if (itemList != null &amp;&amp; !itemList.isEmpty()) {
+            contextMenu.getItems().add(new SeparatorMenuItem());
+            contextMenu.getItems().addAll(itemList);
+          }
+        } else {
+          contextMenu.getItems().setAll(miNew);
+        }
+        contextMenu.show((Node)me.getSource(), me.getScreenX(), me.getScreenY());
+      }
+      me.consume();
+    }
+
+    //@Override public ObservableList&lt;Node&gt; getChildren() { return super.getChildren(); }
+    public Stage getStage() { return stage; }
+    public String getName() { return name != null ? name : &quot;&quot;; }
+    public void setName(String name) { if (Edit.validName(name)) this.name = name; }
+    public ContextMenu getContextMenu() { return contextMenu; }
+    public double getGridSize() { return gridSize; }
+    public String getXmlName() { return xmlName; }
+    public void setModifyed(boolean modifyed) { this.modifyed = modifyed; }
+    public MouseEvent getCurrentMouseEvent() { return cMouseEvent; }
+
+    public void write() {
+      try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(xmlName.concat(&quot;.xml&quot;)), charset)) {
+        XMLStreamWriter xmlw = XMLOutputFactory.newInstance().createXMLStreamWriter(writer);
+        xmlw.writeStartDocument(); //writeStartDocument(charset.name(), &quot;1.0&quot;);
+        xmlw.writeCharacters(&quot;\n&quot;);
+        xmlw.writeStartElement(&quot;scheme&quot;);
+        xmlw.writeAttribute(&quot;name&quot;, getName());
+        xmlw.writeAttribute(&quot;x&quot;, Double.toString(getStage().getX()));
+        xmlw.writeAttribute(&quot;y&quot;, Double.toString(getStage().getY()));
+        xmlw.writeAttribute(&quot;width&quot;, Double.toString(getStage().getWidth()));
+        xmlw.writeAttribute(&quot;height&quot;, Double.toString(getStage().getHeight()));
+        for (String sclss : listSE) {
+          xmlw.writeCharacters(&quot;\n &quot;);
+          xmlw.writeEmptyElement(&quot;element&quot;);
+          xmlw.writeAttribute(&quot;clss&quot;, sclss);
+        }
+        for (Node node : getChildren()) {
+          xmlw.writeCharacters(&quot;\n &quot;);
+          xmlw.writeEmptyElement(&quot;schemeElement&quot;);
+          xmlw.writeAttribute(&quot;clss&quot;, node.getClass().getName());
+          Map&lt;String, ElementProperty&gt; prop = ((SchemeElement)node).getProp();
+          for (ElementProperty ep: prop.values()) xmlw.writeAttribute(ep.getName(), ep.toString());
+ 	}
+        xmlw.writeCharacters(&quot;\n&quot;);
+        xmlw.writeEndElement();
+        xmlw.writeEndDocument();
+        xmlw.writeCharacters(&quot;\n&quot;);
+        xmlw.flush();
+        xmlw.close();
+      } catch (Exception e) { e.printStackTrace(); }
+    }
+
+    public void read() {
+      try (BufferedReader reader = Files.newBufferedReader(Paths.get(xmlName.concat(&quot;.xml&quot;)), charset)) {
+        XMLStreamReader xmlr = XMLInputFactory.newInstance().createXMLStreamReader(reader);
+        Map&lt;String, String&gt; attributeMap = new LinkedHashMap&lt;&gt;();
+        while (xmlr.hasNext()) {
+          xmlr.next();
+          if (xmlr.isStartElement()) {
+            attributeMap.clear();
+            for (int i = 0; i &lt; xmlr.getAttributeCount(); i++) attributeMap.put(xmlr.getAttributeLocalName(i), xmlr.getAttributeValue(i));
+            String elementName = xmlr.getLocalName();
+            if (elementName.equals(&quot;scheme&quot;)) {
+              setName(attributeMap.get(&quot;name&quot;));
+              try { stage.setX(Double.parseDouble(attributeMap.get(&quot;x&quot;))); } catch (Exception e) { }
+              try { stage.setY(Double.parseDouble(attributeMap.get(&quot;y&quot;))); } catch (Exception e) { }
+              try { stage.setWidth(Double.parseDouble(attributeMap.get(&quot;width&quot;))); } catch (Exception e) { }
+              try { stage.setHeight(Double.parseDouble(attributeMap.get(&quot;height&quot;))); } catch (Exception e) { }
+            } else if (elementName.equals(&quot;element&quot;)) fillListSE(attributeMap);
+            else if (elementName.equals(&quot;schemeElement&quot;)) {
+              SchemeElement se = createSE(attributeMap);
+              if (se != null) {
+                se.init(0, 0);
+                se.setAllProperty(attributeMap);
+                addSE(se);
+                fillListSE(attributeMap);
+              }
+            }
+          }
+        }
+        xmlr.close();
+      } catch (Exception e) { e.printStackTrace(); }
+    }
+
+    public void fillListSE(Map&lt;String, String&gt; map) {
+      String sclss = map.get(&quot;clss&quot;);
+      if(sclss != null &amp;&amp; !sclss.isEmpty() &amp;&amp; !listSE.contains(sclss)) listSE.add(sclss);
+    }
+
+    public void fillLabelSE() {
+      if (labelSE == null) {
+        Cursor cursor = getScene().getCursor();
+        getScene().setCursor(Cursor.WAIT);
+        labelSE = FXCollections.observableArrayList();
+        Map&lt;String, String&gt; map = new LinkedHashMap&lt;&gt;();
+        for (String sclss : listSE) {
+          map.clear();
+          map.put(&quot;clss&quot;, sclss);
+          SchemeElement se = createSE(map);
+          labelSE.add(se == null ? new Label(sclss) : new Label(se.getDescription(), se.getPicture(24)));
+        }
+        getScene().setCursor(cursor);
+      }
+    }
+
+    public SchemeElement createSE(Map&lt;String, String&gt; map) {
+      try {
+        String className = map.get(&quot;clss&quot;);
+        if (className == null || className.isEmpty()) throw new RuntimeException(&quot;Missing required attribute clss.&quot;);
+        Class&lt;?&gt; cl = Class.forName(className);
+        Object inst = className.startsWith(&quot;Edit$&quot;) ?
+          cl.getConstructor(Edit.class).newInstance(Edit.this) :
+          cl.getConstructor().newInstance();
+        if (!(inst instanceof SchemeElement)) throw new RuntimeException(&quot;Is not SchemeElement.&quot;);
+        return (SchemeElement)inst;
+      } catch (Exception e) { e.printStackTrace(); }
+      return null;
+    }
+
+    public boolean saveDialog() {
+      if (!modifyed) return true;
+      Dialog&lt;ButtonType&gt; dialog = new Dialog&lt;&gt;();
+      dialog.initOwner(stage);
+      dialog.initStyle(StageStyle.UTILITY);
+      dialog.getDialogPane().getButtonTypes().addAll(ButtonType.YES, ButtonType.NO, ButtonType.CANCEL);
+      dialog.setContentText(&quot;Save?&quot;);
+      Optional&lt;ButtonType&gt; result = dialog.showAndWait();
+      if (result.isPresent()) {
+        if (result.get() == ButtonType.YES) { write(); return true; }
+        if (result.get() == ButtonType.NO) return true;
+      }
+      return false;
+    }
+
+    public void editProperty(SchemeElement se) {
+      Dialog&lt;ButtonType&gt; dialog = new Dialog&lt;&gt;();
+      dialog.initOwner(stage);
+      dialog.initStyle(StageStyle.UTILITY);
+      dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+      GridPane grid = new GridPane();
+      grid.setHgap(4);
+      grid.setVgap(4);
+      grid.setPadding(new Insets(20, 10, 10, 10));
+      Map&lt;String, ElementProperty&gt; prop = se.getProp();
+      int i = 0;
+      for (ElementProperty ep: prop.values()) {
+        if (ep.isEditable()) {
+          grid.add(new Label(ep.getDescription()+&quot;:&quot;), 0, i);
+          Node editor = ep.editIni();
+          grid.add(editor, 1, i);
+          if (i == 0) Platform.runLater(() -&gt; editor.requestFocus());
+          i++;
+        }
+      }
+      dialog.getDialogPane().setContent(grid);
+      Button buttonOk = (Button)dialog.getDialogPane().lookupButton(ButtonType.OK);
+      buttonOk.addEventFilter(ActionEvent.ACTION, ef -&gt; {
+        TextField textField = (TextField)prop.get(&quot;name&quot;).getEditor();
+        String nn = textField.getText().trim();
+        textField.setText(nn);
+        if (!prop.get(&quot;name&quot;).toString().equals(nn)) {
+          AbstractMap.SimpleEntry&lt;Integer, String&gt; en = checkNameSE(nn);
+          if (en.getKey().intValue() &gt; 0) { alert(en.getValue()); ef.consume(); return; }
+        }
+        for (ElementProperty ep: prop.values()) ep.editCommit();
+        modifyed = true;
+      });
+      dialog.showAndWait();
+    }
+
+    public void newElement(double x, double y) {
+      TextField textField = new TextField(&quot;&quot;);
+      ListView&lt;Label&gt; listView = new ListView&lt;&gt;();
+      listView.setPrefSize(200, 200);
+      listView.setMinSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
+      listView.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
+      fillLabelSE();
+      listView.setItems(labelSE);
+      //listView.getSelectionModel().selectFirst();
+      GridPane grid = new GridPane();
+      grid.add(new Label(&quot;Name:&quot;), 0, 0);
+      grid.add(textField, 1, 0);
+      grid.add(listView, 0, 1, 2, 1);
+      grid.setHgap(10);
+      grid.setVgap(10);
+      Platform.runLater(() -&gt; textField.requestFocus());
+      Dialog&lt;ButtonType&gt; dialog = new Dialog&lt;&gt;();
+      dialog.initOwner(stage);
+      dialog.initStyle(StageStyle.UTILITY);
+      dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+      dialog.getDialogPane().setContent(grid);
+      Button buttonOk = (Button)dialog.getDialogPane().lookupButton(ButtonType.OK);
+      buttonOk.addEventFilter(ActionEvent.ACTION, ef -&gt; {
+        if (!addEl(textField, listView, x, y)) ef.consume();
+      });
+      listView.setOnMouseClicked(me -&gt; {
+        if (me.getClickCount() == 2 &amp;&amp; addEl(textField, listView, x, y)) dialog.close();
+      });
+      dialog.showAndWait();
+    }
+
+    public boolean addEl(TextField textField, ListView&lt;Label&gt; listView, double x, double y) {
+      Map&lt;String, String&gt; map = new LinkedHashMap&lt;&gt;();
+      int index = listView.getSelectionModel().getSelectedIndex();
+      if (index &lt; 0) return false;
+      String nn = textField.getText().trim();
+      textField.setText(nn);
+      AbstractMap.SimpleEntry&lt;Integer, String&gt; en = checkNameSE(nn);
+      if (en.getKey().intValue() &gt; 0) { alert(en.getValue()); return false; }
+      map.put(&quot;clss&quot;, listSE.get(index));
+      map.put(&quot;name&quot;, nn);
+      SchemeElement se = createSE(map);
+      if (se == null) return false;
+      se.init(x, y);
+      se.setAllProperty(map);
+      addSE(se);
+      modifyed = true;
+      return true;
+    }
+
+    public AbstractMap.SimpleEntry&lt;Integer, String&gt; checkNameSE(String name) {
+      if (!name.isEmpty()) {
+        if (!Edit.validName(name)) { return new AbstractMap.SimpleEntry&lt;&gt;(Integer.valueOf(1), &quot;Element name &quot; + name + &quot; is not valid.&quot;); }
+        if (containsSE(name)) { return new AbstractMap.SimpleEntry&lt;&gt;(Integer.valueOf(2), &quot;Element name &quot; + name + &quot; already defined.&quot;); }
+      }
+      return new AbstractMap.SimpleEntry&lt;&gt;(Integer.valueOf(0), null);
+    }
+
+    public void alert(String s) {
+      Alert alert = new Alert(Alert.AlertType.NONE, s, ButtonType.OK);
+      alert.initOwner(stage);
+      alert.initStyle(StageStyle.UTILITY);
+      alert.showAndWait();
+    }
+
+    private BiConsumer&lt;String, String&gt; hAction = null;
+    public void setOnAction(BiConsumer&lt;String, String&gt; hAction) { this.hAction = hAction; }
+    public void action(String elementName, String value) { if (hAction != null) hAction.accept(elementName, value); }
+
+    private BiConsumer&lt;String, Exception&gt; hMessage= (m, e) -&gt; { System.out.println(m); };
+    public void setOnMessage(BiConsumer&lt;String, Exception&gt; hMessage) { this.hMessage = hMessage; }
+    public void message(String message) { message(message, null); }
+    public void message(String message, Exception exception) { if (hMessage != null) hMessage.accept(message, exception); }
+
+    public boolean set(String elementName, String value) {
+      AbstractMap.SimpleEntry&lt;String, String&gt; en = splitName(elementName);
+      return set(en.getKey(), en.getValue(), value);
+    }
+    public boolean set(String schemeElementName, String propertyName, String value) {
+      ElementProperty ep = getEP(schemeElementName, propertyName);
+      if (ep == null) return false;
+      if (!ep.isChangeable()) { message(&quot;Property &quot; + schemeElementName + &quot;.&quot; + propertyName +&quot; is not changeable.&quot;); return false; }
+      boolean ret = ep.fromString(value);
+      if (!ret) message(&quot;Property &quot; + schemeElementName + &quot;.&quot; + propertyName +&quot; value is not valid.&quot;);
+      return ret;
+    }
+    public String get(String elementName) {
+      AbstractMap.SimpleEntry&lt;String, String&gt; en = splitName(elementName);
+      return get(en.getKey(), en.getValue());
+    }
+    public String get(String schemeElementName, String propertyName) {
+      ElementProperty ep = getEP(schemeElementName, propertyName);
+      return ep != null ? ep.toString() : null;
+    }
+    public ElementProperty getEP(String schemeElementName, String propertyName) {
+      if (schemeElementName == null || schemeElementName.isEmpty()) { message(&quot;Element name is empty.&quot;); return null; }
+      SchemeElement se = getSE(schemeElementName);
+      if (se == null) { message(&quot;Element &quot; + schemeElementName + &quot; not found.&quot;); return null; }
+      if (propertyName == null || propertyName.isEmpty()) { message(&quot;Element &quot; + schemeElementName + &quot; property name is empty.&quot;); return null; }
+      ElementProperty ep = se.getProp().get(propertyName);
+      if (ep == null) { message(&quot;Property &quot; + schemeElementName + &quot;.&quot; + propertyName + &quot; not found.&quot;); return null; }
+      return ep;
+    }
+    public AbstractMap.SimpleEntry&lt;String, String&gt; splitName(String str) {
+      int p = 0, c = 0;
+      for (int i = 0; i &lt; str.length(); i++) if (str.charAt(i) == '.') { p = i; c++; }
+      if (c != 1) return new AbstractMap.SimpleEntry&lt;&gt;(&quot;&quot;, &quot;&quot;);
+      return new AbstractMap.SimpleEntry&lt;&gt;(str.substring(0, p), str.substring(p + 1, str.length()));
+    }
+
+  }  //end class Scheme
+
+  public static class SchemeElement extends Group {
+
+    protected StringProperty nameProperty = new SimpleStringProperty(null, &quot;name&quot;);
+    protected Scheme scheme = null;
+    protected boolean editing = false;
+    protected Map&lt;String, ElementProperty&gt; properties = new LinkedHashMap&lt;&gt;();
+    protected ArrayList&lt;Node&gt; anchors;
+
+    public SchemeElement() {
+      setOnMousePressed(me -&gt; { mousePressed(me); });
+      addProperty(new ElementProperty(nameProperty()).setDescription(&quot;Name&quot;).setChangeable(false));
+    }
+
+    public void init(double x, double y) {
+      layoutXProperty().set(x);
+      layoutYProperty().set(y);
+      addAllProperty(new ElementProperty(layoutXProperty()).setRestr().setEditable(false),
+                     new ElementProperty(layoutYProperty()).setRestr().setEditable(false)
+      );
+    }
+
+    public void childrenAddAll(Node... childrens) { getChildren().addAll(childrens); }
+    public StringProperty nameProperty() { return nameProperty; }
+    public String getName() { return nameProperty.get() != null ? nameProperty.get() : &quot;&quot;; }
+    public void mousePressed(MouseEvent me) { if (scheme != null) scheme.mousePressed(me); }
+
+    public void setEditing(boolean editing) {
+      this.editing = editing;
+      edit(editing);
+    }
+    public boolean isEditing()  { return editing; }
+    //public Scheme getScheme() { return scheme; }
+    public void setScheme(Scheme scheme) {
+      if (this.scheme != null &amp;&amp; scheme != null &amp;&amp; this.scheme != scheme) throw new IllegalArgumentException(&quot;Scheme already defined.&quot;);
+      this.scheme = scheme;
+    }
+    public Map&lt;String, ElementProperty&gt; getProp() { return properties; }
+    public void addAllProperty(ElementProperty... elements) {
+      for (ElementProperty ep : elements) addProperty(ep);
+    }
+    public void addProperty(ElementProperty ep) {
+      if (!Edit.validName(ep.getName())) throw new IllegalArgumentException(&quot;Property name &quot; + ep.getName() + &quot; is not valid.&quot;);
+      if (properties.containsKey(ep.getName())) throw new IllegalArgumentException(&quot;Property name &quot; + ep.getName() + &quot; already defined.&quot;);
+      properties.put(ep.getName(), ep);
+      ep.setSchemeElement(this);
+    }
+    public void setAllProperty(Map&lt;String, String&gt; map) {
+      for (Map.Entry&lt;String, String&gt; entry : map.entrySet()) setProperty(entry.getKey(), entry.getValue());
+    }
+    public void setProperty(String propertyName, String value) {
+      ElementProperty ep = properties.get(propertyName);
+      if (ep != null) ep.fromString(value);
+    }
+    public String getProperty(String propertyName) {
+      ElementProperty ep = properties.get(propertyName);
+      return ep != null ? ep.toString() : &quot;&quot;;
+    }
+
+    public void edit(boolean editing) {
+      //if (scheme == null) throw new NullPointerException(&quot;Scheme cannot be null.&quot;);
+      if (editing) {
+        if (anchors == null) {
+          anchors = new ArrayList&lt;Node&gt;(Arrays.asList(anchors()));
+          getChildren().addAll(anchors);
+        } else anchors.forEach(anchor -&gt; anchor.setVisible(true));
+      } else if (anchors != null) anchors.forEach(anchor -&gt; anchor.setVisible(false));
+    }
+
+    public Node[] anchors() {
+      return new Node[] { createAnchor(layoutXProperty(), layoutYProperty(), false) };
+    }
+    private double dx, dy;
+    public Node createAnchor(DoubleProperty x, DoubleProperty y, boolean bind) {
+      Circle anchor = new Circle(0, 0, 2);
+      if (bind) {
+        anchor.centerXProperty().bind(x);
+        anchor.centerYProperty().bind(y);
+      }
+      anchor.setFill(Color.WHITE);
+      anchor.setStroke(Color.BLACK);
+      anchor.setStrokeWidth(2);
+      anchor.setStrokeType(StrokeType.OUTSIDE);
+      anchor.setOnMousePressed(me -&gt; {
+        dx = (bind ? x.get() : 0) - me.getX();
+        dy = (bind ? y.get() : 0) - me.getY();
+        me.consume();
+      });
+      anchor.setOnMouseDragged(me -&gt; {
+        x.set(me.getX() + dx + (bind ? 0 : x.get()));
+        y.set(me.getY() + dy + (bind ? 0 : y.get()));
+        me.consume();
+      });
+      anchor.setOnMouseReleased((me) -&gt; { //snap to grid
+        double gridSize = scheme.getGridSize();
+        x.set(Math.round(x.get() / gridSize) * gridSize);
+        y.set(Math.round(y.get() / gridSize) * gridSize);
+        me.consume();
+      });
+      anchor.setOnMouseEntered((mouseEvent) -&gt; { getScene().setCursor(Cursor.HAND); });
+      anchor.setOnMouseExited((mouseEvent) -&gt; { getScene().setCursor(Cursor.DEFAULT); });
+      return anchor;
+    }
+
+    public Node createBoundLine(DoubleProperty startX, DoubleProperty startY, DoubleProperty endX, DoubleProperty endY) {
+      Line boundLine = new Line();
+      boundLine.startXProperty().bind(startX);
+      boundLine.startYProperty().bind(startY);
+      boundLine.endXProperty().bind(endX);
+      boundLine.endYProperty().bind(endY);
+      boundLine.setStrokeLineCap(StrokeLineCap.BUTT);
+      boundLine.getStrokeDashArray().setAll(10.0, 5.0);
+      return boundLine;
+    }
+
+    public ArrayList&lt;MenuItem&gt; getItems() { return null; }
+    public String getDescription() { return getClass().getName(); }
+    public Node getPicture(double size) {
+      Canvas canvas = new Canvas(size, size);
+      GraphicsContext gc = canvas.getGraphicsContext2D();
+      gc.setStroke(Color.BLUE);
+      gc.strokeRect(1, 1, size * .67, size * .67);
+      gc.strokeRect(size * .33, size * .33, size * .6, size * .6);
+      return canvas;
+    }
+  }  //end class SchemeElement
+
+  public static class ElementProperty {
+
+    protected String name = null;
+    protected Node editor = null;
+    protected SchemeElement se = null;
+    protected String description = null;
+    protected boolean editable = true;
+    protected boolean changeable = true;
+    protected Property&lt;?&gt; prop;
+    protected Class&lt;?&gt; clss;
+
+    public ElementProperty(Property&lt;?&gt; prop) { this(prop, prop.getName(), null); }
+    public ElementProperty(Property&lt;?&gt; prop, String name) { this(prop, name, null); }
+    public ElementProperty(Property&lt;?&gt; prop, Class&lt;?&gt; clss) { this(prop, prop.getName(), clss); }
+    public ElementProperty(Property&lt;?&gt; prop, String name, Class&lt;?&gt; clss) {
+      this.prop = Objects.requireNonNull(prop, &quot;Property cannot be null.&quot;);
+      this.prop = prop;
+      this.name = name;
+      this.clss = clss;
+    }
+
+    public String getName() { return name != null ? name : &quot;&quot;; }
+    public ElementProperty setEditable(boolean editable) { this.editable = editable; return this; }
+    public boolean isEditable() { return editable; }
+    public ElementProperty setChangeable(boolean changeable) { this.changeable = changeable; return this; }
+    public boolean isChangeable() { return changeable; }
+    public ElementProperty setDescription(String description) { this.description = description; return this; }
+    public String getDescription() { return description != null ? description : getName(); }
+
+    protected ChangeListener&lt;Number&gt; doubleRestr = (v, o, n) -&gt; { if (n.doubleValue() &lt; 0) ((DoubleProperty)v).set(0); };
+    public ElementProperty setRestr() {
+      if (prop instanceof DoubleProperty) {
+        ((DoubleProperty)prop).addListener(doubleRestr);
+      }
+      return this;
+    }
+    //public SchemeElement getSchemeElement() { return se; }
+    public void setSchemeElement(SchemeElement se) {
+      if (this.se != null &amp;&amp; se != null &amp;&amp; this.se != se) throw new IllegalArgumentException(&quot;SchemeElement already defined.&quot;);
+      this.se = se;
+    }
+    public Property&lt;?&gt; getProperty() { return prop; }
+    @Override public String toString() { return prop.getValue() == null ? &quot;&quot; : prop.getValue().toString(); }
+
+    public Node getEditor() {
+      if (!editable) throw new RuntimeException(&quot;Property is not editable.&quot;);
+      if (editor == null) {
+        if (prop instanceof StringProperty || prop instanceof DoubleProperty) {
+          editor = new TextField();
+        } else if (prop instanceof BooleanProperty) {
+          editor = new CheckBox();
+        } else if (prop instanceof ObjectProperty) {
+          if (clss == null) throw new NullPointerException(&quot;Clss cannot be null.&quot;);
+          if (clss.isAssignableFrom(Paint.class)) {
+            editor = new ColorPicker();
+          } else if (clss.isEnum()) {
+            editor = new ComboBox&lt;Object&gt;(FXCollections.observableArrayList(clss.getEnumConstants()));
+          }
+        }
+        if (editor == null) editor = new Label(&quot;undefined&quot;);
+      }
+      return editor;
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public Node editIni() {
+      getEditor();
+      if (editor instanceof TextField) ((TextField)editor).setText(toString());
+      else if (editor instanceof CheckBox) ((CheckBox)editor).setSelected(((Boolean)prop.getValue()).booleanValue());
+      else if (editor instanceof ColorPicker) ((ColorPicker)editor).setValue((Color)prop.getValue());
+      else if (editor instanceof ComboBox) ((ComboBox&lt;Object&gt;)editor).getSelectionModel().select(prop.getValue());
+      return editor;
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public void editCommit() {
+      if (!editable || editor == null) return;
+      if (editor instanceof TextField) fromString(((TextField)editor).getText());
+      else if (editor instanceof CheckBox) ((BooleanProperty)prop).set(((CheckBox)editor).isSelected());
+      else if (editor instanceof ColorPicker) ((ObjectProperty&lt;Paint&gt;)prop).set(((ColorPicker)editor).getValue());
+      else if (editor instanceof ComboBox) ((ObjectProperty)prop).setValue(((ComboBox&lt;Object&gt;)editor).getSelectionModel().getSelectedItem());
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public boolean fromString(String s) {
+      try { 
+        if (prop instanceof StringProperty) ((StringProperty)prop).set(s);
+        else if (prop instanceof DoubleProperty) {
+          ((DoubleProperty)prop).set(Double.parseDouble(s));
+        } else if (prop instanceof BooleanProperty) {
+          ((BooleanProperty)prop).set(Boolean.parseBoolean(s));
+        } else if (prop instanceof ObjectProperty) {
+          if (clss.isAssignableFrom(Paint.class)) {
+            ((ObjectProperty&lt;Paint&gt;)prop).set(Paint.valueOf(s));
+          } else if (clss.isEnum()) {
+            for (Object o : clss.getEnumConstants()) {
+              if (s.equals(o.toString())) { ((ObjectProperty)prop).setValue(o); break; }
+            }
+          } else return false;
+        } else return false;
+      } catch (Exception e) { return false; }
+      return true;
+    }
+
+  }  //end class ElementProperty
+
+  public class SELabel extends SchemeElement {
+
+    public SELabel() {
+      super();
+      Label label = new Label(&quot;Label&quot;);
+      ObjectProperty&lt;Paint&gt; bgFillProperty = new SimpleObjectProperty&lt;&gt;(null, &quot;bgFill&quot;, Color.TRANSPARENT);
+      bgFillProperty.addListener((v, o, n) -&gt; {
+        label.setBackground(new Background(new BackgroundFill(n, CornerRadii.EMPTY, Insets.EMPTY)));
+      });
+      ObjectProperty&lt;Paint&gt; borderFillProperty = new SimpleObjectProperty&lt;&gt;(null, &quot;borderFill&quot;, Color.TRANSPARENT);
+      borderFillProperty.addListener((v, o, n) -&gt; {
+        label.setBorder(new Border(new BorderStroke(n, BorderStrokeStyle.SOLID, CornerRadii.EMPTY, new BorderWidths(1))));
+      });
+      label.setPadding(new Insets(2));
+      label.layoutXProperty().bind(label.widthProperty().divide(-2));
+      label.layoutYProperty().bind(label.heightProperty().divide(-2));
+      addAllProperty(new ElementProperty(label.textProperty()),
+                     new ElementProperty(label.textFillProperty(), Paint.class),
+                     new ElementProperty(bgFillProperty, Paint.class),
+                     new ElementProperty(borderFillProperty, Paint.class),
+                     new ElementProperty(label.minWidthProperty()),
+                     new ElementProperty(label.alignmentProperty(), Pos.class),
+                     new ElementProperty(label.rotateProperty())
+      );
+      childrenAddAll(label);
+    }
+
+    @Override public String getDescription() { return &quot;Label&quot;; }
+
+  }  //end class SELabel
+
+  public class SEButton extends SchemeElement {
+
+    public SEButton() {
+      super();
+      Button button = new Button(&quot;Button&quot;);
+      addEventFilter(MouseEvent.MOUSE_PRESSED, me -&gt; { if (me.isSecondaryButtonDown()) mousePressed(me); });
+      button.setOnAction(ae -&gt; { scheme.action(getName().concat(&quot;.button&quot;), &quot;pressed&quot;); });
+      button.setPadding(new Insets(6));
+      button.layoutXProperty().bind(button.widthProperty().divide(-2));
+      button.layoutYProperty().bind(button.heightProperty().divide(-2));
+      addAllProperty(new ElementProperty(button.textProperty()),
+                     new ElementProperty(button.minWidthProperty())
+      );
+      childrenAddAll(button);
+    }
+
+    @Override public String getDescription() { return &quot;Button&quot;; }
+
+  }  //end class SEButton
+
+}  //end class Edit
+
+</pre>
+</body></html>
