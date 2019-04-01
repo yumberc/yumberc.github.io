@@ -1,0 +1,125 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, X509, Certificate, Download, Source, Free">
+<meta name="keywords" content="Java, X509, Certificate, Download, Source, Free">
+<title>X509Cert.java</title>
+</head>
+<body bgcolor="#FFFFFF">
+<pre>
+
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import java.security.*;
+import java.security.cert.*;
+import javax.security.auth.x500.*;
+
+public class X509Cert {
+
+  public static void main(String[] args) {
+
+    try {
+      KeyPairGenerator kpg = KeyPairGenerator.getInstance(&quot;RSA&quot;);
+      kpg.initialize(1024); // keysize bit
+      KeyPair kp = kpg.generateKeyPair();
+      PublicKey publicKey = kp.getPublic();
+      PrivateKey privateKey = kp.getPrivate();
+
+      Asn1Object pub = new Asn1Object(publicKey.getEncoded());
+
+      GregorianCalendar calendar = new GregorianCalendar();
+
+      //calendar.add(Calendar.DAY_OF_MONTH, -1);
+      Date BeginDate = calendar.getTime();
+      calendar.add(Calendar.YEAR, 1);
+      Date EndDate = calendar.getTime();
+
+      Asn1Object Issuer =  new Asn1Object(new X500Principal(&quot;CN=Issuer&quot;).getEncoded());
+      Asn1Object Subject =  new Asn1Object(new X500Principal(&quot;CN=Subject&quot;).getEncoded());
+
+      Asn1Object tsb =
+        new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SEQUENCE).addAll(
+          new Asn1Object(Asn1Object.CONTEXT | Asn1Object.CONSTRUCTED, 0).addAll(
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.INTEGER, Integer.valueOf(2))
+          ),
+          new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.INTEGER, Integer.valueOf(1)),
+          new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SEQUENCE).addAll(
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.OBJECT_IDENTIFIER, &quot;1.2.840.113549.1.1.5&quot;),
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.NULL)
+          ),
+          Issuer,
+          new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SEQUENCE).addAll(
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.UTC_TIME, BeginDate),
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.UTC_TIME, EndDate)
+          ),
+          Subject,
+          pub
+        );
+
+      Signature instance = Signature.getInstance(&quot;SHA1withRSA&quot;);
+      instance.initSign(privateKey);
+      instance.update(tsb.getBytes());
+      byte[] sha1rsa = instance.sign();
+
+      Asn1Object root =
+        new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SEQUENCE).addAll(
+          tsb,
+          new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SEQUENCE).addAll(
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.OBJECT_IDENTIFIER, &quot;1.2.840.113549.1.1.5&quot;),
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.NULL)
+          ),
+          new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.BIT_STRING, new Object[] { Integer.valueOf(0), sha1rsa })
+        );
+
+      root.print();
+
+      byte[] bytes = root.getBytes();
+      ByteArrayInputStream in = new ByteArrayInputStream(bytes);
+
+      CertificateFactory cf = CertificateFactory.getInstance(&quot;X.509&quot;);
+      X509Certificate cert = (X509Certificate)cf.generateCertificate(in);
+      //in.close();
+
+      cert.verify(cert.getPublicKey());
+      System.out.println(&quot;Done!&quot;);
+
+      Files.write(Paths.get(&quot;certificate.cer&quot;), Base64.getMimeEncoder().encode(bytes));
+
+      Files.write(Paths.get(&quot;private.key&quot;), Base64.getMimeEncoder().encode(privateKey.getEncoded()));
+
+      Asn1Object pkcs7 =
+        new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SEQUENCE).addAll(
+          new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.OBJECT_IDENTIFIER, &quot;1.2.840.113549.1.7.2&quot;),
+          new Asn1Object(Asn1Object.CONTEXT | Asn1Object.CONSTRUCTED, 0).addAll(
+            new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SEQUENCE).addAll(
+              new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.INTEGER, Integer.valueOf(1)),
+              new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SET),
+              new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SEQUENCE).addAll(
+                new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.OBJECT_IDENTIFIER, &quot;1.2.840.113549.1.7.1&quot;)
+              ),
+              new Asn1Object(Asn1Object.CONTEXT | Asn1Object.CONSTRUCTED, 0).addAll(
+                root
+              ),
+              new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SET)
+            )
+          )
+        );
+
+      Files.write(Paths.get(&quot;certificate.p7b&quot;), Base64.getMimeEncoder().encode(pkcs7.getBytes()));
+
+      KeyStore keyStore = KeyStore.getInstance(&quot;PKCS12&quot;);
+      keyStore.load(null, null);
+     
+      keyStore.setKeyEntry(&quot;private&quot;, privateKey, &quot;password&quot;.toCharArray(), new X509Certificate[] { cert });
+
+      try (OutputStream os = Base64.getMimeEncoder().wrap(new FileOutputStream(&quot;keystore.p12&quot;))) {
+        keyStore.store(os, &quot;password&quot;.toCharArray());
+      }
+
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+  }
+}
+</pre>
+</body></html>
