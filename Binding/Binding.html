@@ -1,0 +1,123 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, Binding, Binding Properties, Scada, Tank Level, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, Binding, Binding Properties, Scada, Tank Level, Download, Source, Free">
+<title>Binding Properties</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Binding Properties</p>
+<a href="Binding.jpg"><img src="Binding.jpg" width="150" height="150" alt="Binding Properties" title="Binding Properties"></a>
+<p></p>
+<pre>
+---------------- Binding.java ------------------
+
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.scene.effect.*;
+import javafx.scene.canvas.*;
+import javafx.scene.shape.*;
+import javafx.scene.paint.*;
+import javafx.scene.chart.NumberAxis;
+import javafx.beans.property.*;
+import javafx.geometry.*;
+
+public class Binding extends Application {
+
+  double lastX, lastY;
+
+  @Override
+  public void start(Stage stage) {
+    BorderPane layout = new BorderPane();
+    Scene scene = new Scene(layout, 500, 300);
+    stage.setScene(scene);
+    Slider slider = new Slider(0, 1, 0);
+    slider.setMinWidth(150);
+    slider.setMaxWidth(150);
+    slider.setPadding(new Insets(6));
+    slider.setBlockIncrement(0.05);
+    Tank1 tank1 = new Tank1(150, 200, 30, 15);
+    tank1.levelProperty().bind(slider.valueProperty());
+    tank1.setOnMousePressed(me -&gt; {
+      lastX = me.getX();
+      lastY = me.getY();
+    });
+    tank1.setOnMouseDragged(me -&gt; {
+      double layoutX = tank1.getLayoutX() + me.getX() - lastX;
+      double layoutY = tank1.getLayoutY() + me.getY() - lastY;
+      if (layoutX &gt;= 0) tank1.setLayoutX(layoutX);
+      if (layoutY &gt;= 0) tank1.setLayoutY(layoutY);
+    });
+    layout.setCenter(new ScrollPane(new Pane(tank1)));
+    layout.setBottom(slider);
+    stage.show();
+  }
+
+  public class Tank1 extends Group {
+    private double w, h, a, s;
+    private NumberAxis tickLine;
+    private Rectangle bar;
+    private Canvas canvas;
+    private DoubleProperty levelProperty = new SimpleDoubleProperty(this, &quot;level&quot;, 0.0);
+
+    public Tank1(double w, double h, double a, double s) {
+      this.w = w;
+      this.h = h;
+      this.a = a;
+      this.s = s;
+      levelProperty.addListener(observable -&gt; { updateLevel(); });
+      tickLine = new NumberAxis(0, 100, 10);
+      tickLine.setSide(Side.RIGHT);
+      tickLine.setPrefHeight(h - a - a);
+      tickLine.setMinHeight(StackPane.USE_PREF_SIZE);
+      tickLine.setMaxHeight(StackPane.USE_PREF_SIZE);
+      tickLine.setLayoutX(w / 2);
+      tickLine.setLayoutY(a);
+      bar = new Rectangle(w / 2 - s - 5, h - a, s, 0);
+      bar.setFill(Color.BLUE);
+      canvas = new Canvas(w, h);
+      bg();
+      getChildren().addAll(canvas, bar, tickLine);
+    }
+
+    private void updateLevel() {
+      double barHeight = Math.round((h - a - a) * levelProperty.get());
+      bar.setLayoutY(-barHeight);
+      bar.setHeight(barHeight);
+    }
+
+    private void bg() {
+      GraphicsContext gc = canvas.getGraphicsContext2D();
+      gc.beginPath();
+      gc.moveTo(0, a);
+      gc.quadraticCurveTo(0, 0, w / 2, 0);
+      gc.quadraticCurveTo(w, 0, w, a);
+      gc.lineTo(w, h - a);
+      gc.quadraticCurveTo(w, h, w / 2, h);
+      gc.quadraticCurveTo(0, h, 0, h - a);
+      gc.closePath();
+      gc.setFill(Color.WHITESMOKE);
+      gc.fill();
+      InnerShadow shade = new InnerShadow();
+      shade.setWidth(w * 2);
+      shade.setHeight(h / 4);
+      shade.setColor(Color.BLACK);
+      gc.applyEffect(shade);
+      gc.setStroke(Color.DARKGRAY);
+      gc.strokeRect(w / 2 - s - 5, a, s, h - a - a);
+    }
+
+    public DoubleProperty levelProperty() { return levelProperty; }
+  }
+}
+</pre>
+<p><b><a href="Binding.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
