@@ -1,0 +1,178 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, Run, Script, JavaScript, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, Run, Script, JavaScript, Download, Source, Free">
+<title>Call external javascript functions from java</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Call external javascript functions from java</p>
+<a href="RunScript.jpg"><img src="RunScript.jpg" width="150" height="150" alt="Call external javascript functions from java" title="Call external javascript functions from java"></a>
+<p></p>
+<pre>
+--------------- RunScript.java -----------------
+
+import java.io.*;
+import java.nio.file.*;
+import java.util.concurrent.*;
+import javax.script.*;
+
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.geometry.*;
+import javafx.scene.text.*;
+
+public class RunScript extends Application {
+
+  ScriptEngine engine;
+  long iniTime;
+  CompiledScript compiledScript;
+  boolean compiled = false;
+  Future&lt;?&gt; future = null;
+  ExecutorService executorService;
+
+  @Override
+  public void start(Stage stage) {
+
+    String engineName = &quot;JavaScript&quot;;
+    File file = new File(&quot;script.txt&quot;);
+
+    TextArea scriptArea = new TextArea();
+    TextArea resultArea = new TextArea();
+    resultArea.setEditable(false);
+    Font font = Font.font(&quot;Monospaced&quot;);
+    scriptArea.setFont(font);
+    resultArea.setFont(font);
+
+    BorderPane layout = new BorderPane();
+    Scene scene = new Scene(layout, 900, 600);
+    stage.setScene(scene);
+
+    if (file.exists()) {
+      try {
+        scriptArea.appendText(new String(Files.readAllBytes(file.toPath())));
+      } catch (Exception e) {}
+    }
+    else scriptArea.setText(demoJavaScript());
+    scriptArea.home();
+
+    ScriptEngineManager manager = new ScriptEngineManager();
+    engine = manager.getEngineByName(engineName);
+    if (engine == null) throw new RuntimeException(&quot;No script engine found for &quot; + engineName);
+    ScriptContext context = engine.getContext();
+    Writer writer = new Writer() {
+      @Override
+      public void write(char cbuf[], int off, int len) {
+        String s = new String(cbuf, off, len);
+        Platform.runLater(() -&gt; { resultArea.appendText(s); });
+      }
+      @Override
+      public void flush() {}
+      @Override
+      public void close() {}
+    };
+    context.setErrorWriter(writer);
+    context.setWriter(writer);
+
+    SplitPane splitPane = new SplitPane(scriptArea, resultArea);
+    layout.setCenter(splitPane);
+
+    BorderPane bottomPane = new BorderPane();
+    BorderPane.setMargin(bottomPane, new Insets(2));
+    Button button = new Button();
+    bottomPane.setLeft(button);
+    button.setMinWidth(60);
+    String stRun = &quot;Run&quot;, stStop = &quot;Stop&quot;;
+    button.setText(stRun);
+
+    button.setOnAction((event) -&gt; {
+      button.setText(stStop);
+      if (future != null &amp;&amp; !future.isDone()) {
+        future.cancel(true);
+        button.setDisable(true);
+      } else {
+        resultArea.clear();
+        String script = new String(scriptArea.getText());
+
+        executorService = Executors.newSingleThreadExecutor((runnable) -&gt; {
+          Thread thread = new Thread(runnable);
+          thread.setDaemon(true);
+          return thread;
+        });
+
+        future = executorService.submit(() -&gt; {
+          try {
+            iniTime = System.currentTimeMillis();
+            if (engine instanceof Compilable) {
+              if (!compiled) {
+                compiledScript = ((Compilable)engine).compile(script);
+                compiled = true;
+                Platform.runLater(() -&gt; { resultArea.appendText(&quot;Compile time: &quot; + (System.currentTimeMillis() - iniTime) + &quot; ms\n&quot;); });
+                iniTime = System.currentTimeMillis();
+              }
+              compiledScript.eval();
+            } else {
+              engine.eval(script);
+            }
+            Platform.runLater(() -&gt; { resultArea.appendText(&quot;Run time: &quot; + (System.currentTimeMillis() - iniTime) + &quot; ms\n&quot;); });
+          } catch (Exception e) {
+            Platform.runLater(() -&gt; { resultArea.appendText(e.getMessage() + &quot;\n&quot;); });
+          }
+          Platform.runLater(() -&gt; {
+            button.setText(stRun);
+            button.setDisable(false);
+            resultArea.setScrollTop(Double.MAX_VALUE);
+          });
+
+        });
+        executorService.shutdown();
+      }
+    });
+
+    layout.setBottom(bottomPane);
+
+    scriptArea.textProperty().addListener((observable, oldValue, newValue) -&gt; {
+      compiled = false;
+    });
+
+    stage.setOnCloseRequest(event -&gt; {
+      try {
+        Files.write(file.toPath(), scriptArea.getText().getBytes());
+      } catch (Exception e) {}
+    });
+
+    stage.show();
+  }
+
+  String demoJavaScript() {
+    StringBuilder sb = new StringBuilder();
+    sb.append(&quot;for (var angle = 0; angle &lt;= Math.PI * 2; angle += .2) {\n&quot;);
+    sb.append(&quot;  var y = 15 * Math.sin(angle);\n&quot;);
+    sb.append(&quot;  if (y &gt; 0) print(repeat(' ', 15) + repeat('*', y));\n&quot;);
+    sb.append(&quot;  else  print(repeat(' ', 15 + y) + repeat('*', -y));\n&quot;);
+    sb.append(&quot;  //java.lang.Thread.sleep(100);\n&quot;);
+    sb.append(&quot;  sleep(100);\n&quot;);
+    sb.append(&quot;}\n\n&quot;);
+    sb.append(&quot;function repeat(s, n) {\n&quot;);
+    sb.append(&quot;  return new Array(Math.max(0, Math.floor(n)) + 1).join(s);\n&quot;);
+    sb.append(&quot;}\n\n&quot;);
+    sb.append(&quot;function sleep(milliseconds) {\n&quot;);
+    sb.append(&quot;  var ending = new Date().getTime() + milliseconds;\n&quot;);
+    sb.append(&quot;  while (new Date().getTime() &lt; ending )\n&quot;);
+    sb.append(&quot;    if (java.lang.Thread.currentThread().isInterrupted())\n&quot;);
+    sb.append(&quot;      throw new java.lang.InterruptedException();\n&quot;);
+    sb.append(&quot;}\n\n&quot;);
+    return sb.toString();
+  }
+}
+</pre>
+<p><b><a href="RunScript.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
