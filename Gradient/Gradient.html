@@ -1,0 +1,233 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, Color, Gradient, Generator, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, Color, Gradient, Generator, Download, Source, Free">
+<title>Java gradient generator</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Java color gradient generator</p>
+<a href="Gradient.jpg"><img src="Gradient.jpg" width="150" height="125" alt="Java gradient generator" title="Java gradient generator"></a>
+<p></p>
+<pre>
+--------------- Gradient.java ------------------
+
+import java.util.*;
+
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.layout.*;
+import javafx.scene.paint.*;
+import javafx.scene.canvas.*;
+import javafx.scene.shape.*;
+import javafx.scene.control.*;
+import javafx.scene.input.*;
+import javafx.geometry.*;
+import javafx.scene.image.*;
+
+public class Gradient extends Application {
+
+  double lastX;
+  List&lt;Stop&gt; stopsList = new ArrayList&lt;&gt;();
+  List&lt;Pane&gt; slidersList = new ArrayList&lt;&gt;();
+  double barWidth = 200, sliderWidth = 20, patternSize = 10;
+  Pane bar;
+  LinearGradient linearGradient;
+  ImagePattern patternTransparent;
+  Button addButton, delButton;
+  ColorPicker colorPicker;
+  int select;
+
+  @Override
+  public void start(Stage stage) {
+
+    stopsList.add(new Stop(0.2, Color.BLUE));
+    stopsList.add(new Stop(0.4, Color.RED));
+    stopsList.add(new Stop(0.6, Color.BLACK));
+    stopsList.add(new Stop(0.8, Color.TRANSPARENT));
+
+    stage.setScene(new Scene(gradientEdPane(), 350, 250));
+    stage.setOnCloseRequest(event -&gt; { System.out.println(stopsList.toString()); });
+    stage.show();
+  }
+
+  Pane gradientEdPane() {
+
+    Pane gradientPane = new Pane();
+    gradientPane.setPrefSize(barWidth + sliderWidth, sliderWidth * 3.25 + 2);
+    gradientPane.setMinSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
+    gradientPane.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
+
+    patternTransparent = patternTransparent();
+
+    bar = new Pane(new Rectangle(barWidth, sliderWidth * 2, patternTransparent),
+                   new Rectangle(barWidth, sliderWidth * 2));
+
+    bar.relocate(sliderWidth / 2, 0);
+
+    ((Rectangle)bar.getChildren().get(1)).setStrokeType(StrokeType.OUTSIDE);
+    ((Rectangle)bar.getChildren().get(1)).setStrokeWidth(1);
+    ((Rectangle)bar.getChildren().get(1)).setStroke(Color.BLACK);
+
+    colorPicker = new ColorPicker();
+    colorPicker.setOnAction((ae) -&gt; {
+      stopsList.set(select, new Stop(stopsList.get(select).getOffset(), colorPicker.getValue()));
+      ((Polygon)slidersList.get(select).getChildren().get(1)).setFill(colorPicker.getValue());
+      repaintGradient();
+    });
+    gradientPane.getChildren().add(bar);
+    stopsList.forEach((stop) -&gt; { gradientPane.getChildren().add(createSlider(stop)); });
+
+    addButton = new Button(&quot;+&quot;);
+    addButton.setPrefWidth(30);
+    addButton.setOnAction((event) -&gt; {
+      for (int i = 0; i &lt; stopsList.size(); i++) {
+        double offset = stopsList.get(i).getOffset() * (1 - (sliderWidth + 4) / barWidth);
+        slidersList.get(i).setLayoutX(barWidth * offset);
+        stopsList.set(i, new Stop(offset , stopsList.get(i).getColor()));
+      }
+      Stop stop = new Stop(1, select &gt;= 0 ? stopsList.get(select).getColor() : Color.TRANSPARENT);
+      stopsList.add(stop);
+      gradientPane.getChildren().add(createSlider(stop));
+      setDisableButtons();
+      selectSlider(slidersList.size() - 1);
+      repaintGradient();
+    });
+    delButton = new Button(&quot;-&quot;);
+    delButton.setPrefWidth(30);
+    delButton.setOnAction((event) -&gt; {
+      assert select &gt;= 0;
+      double offset = stopsList.get(select).getOffset();
+      gradientPane.getChildren().remove(slidersList.get(select));
+      stopsList.remove(select);
+      slidersList.remove(select);
+      setDisableButtons();
+      select = -1;
+      int il = -1, ir = -1;
+      for (int i = 0; i &lt; stopsList.size(); i++) {
+        double off = stopsList.get(i).getOffset();
+        if (off &lt; offset) { if(il &lt; 0 || off &gt; stopsList.get(il).getOffset()) il = i; }
+        else { if(ir &lt; 0 || off &lt; stopsList.get(ir).getOffset()) ir = i; }
+      }
+      if (il &gt;= 0) selectSlider(il);
+      else if (ir &gt;= 0) selectSlider(ir);
+      repaintGradient();
+    });
+
+    setDisableButtons();
+    select = -1;
+    if (stopsList.size() &gt; 0) {
+      int m = -1;
+      for (int i = 0; i &lt; stopsList.size(); i++)
+        if(m &lt; 0 || stopsList.get(i).getOffset() &lt; stopsList.get(m).getOffset()) m = i;
+      selectSlider(m);
+    }
+    repaintGradient();
+
+    HBox buttonPane = new HBox(6);
+    buttonPane.setPadding(new Insets(16, sliderWidth / 2, 0, sliderWidth / 2));
+    buttonPane.getChildren().addAll(colorPicker, addButton, delButton);
+
+    GridPane gradientEdPane = new GridPane();
+    gradientEdPane.add(gradientPane, 0, 0);
+    gradientEdPane.add(buttonPane, 0, 1);
+    gradientEdPane.setAlignment(Pos.CENTER);
+
+    return gradientEdPane;
+  }
+
+  double[] points = {
+    sliderWidth / 2.0, 0.0,
+    sliderWidth,       sliderWidth / 2.0,
+    sliderWidth,       sliderWidth * 1.25,
+    0.0,               sliderWidth * 1.25,
+    0.0,               sliderWidth / 2.0,
+  };
+
+  Pane createSlider(Stop stop) {
+
+    Pane slider = new Pane(new Polygon(points), new Polygon(points));
+    slidersList.add(slider);
+    slider.setLayoutX(barWidth * stop.getOffset());
+    slider.setLayoutY(sliderWidth * 2 + 2);
+    ((Polygon)slider.getChildren().get(0)).setFill(patternTransparent);
+
+    ((Polygon)slider.getChildren().get(1)).setFill(stop.getColor());
+    ((Polygon)slider.getChildren().get(1)).setStrokeType(StrokeType.OUTSIDE);
+    ((Polygon)slider.getChildren().get(1)).setStrokeWidth(1);
+    ((Polygon)slider.getChildren().get(1)).setStroke(Color.BLACK);
+
+    slider.setOnMousePressed(me -&gt; {
+      lastX = me.getX();
+      selectSlider(slidersList.indexOf(me.getSource()));
+    });
+
+    slider.setOnMouseDragged(me -&gt; {
+      double layoutX = slider.getLayoutX() + me.getX() - lastX;
+      double offset = layoutX / barWidth;
+      offset = offset &lt; 0 ? 0 : offset &gt; 1 ? 1 : offset;
+      int ind = slidersList.indexOf(me.getSource());
+      if (Double.compare(offset, stopsList.get(ind).getOffset()) != 0) {
+        slider.setLayoutX(barWidth * offset);
+        stopsList.set(ind, new Stop(offset, stopsList.get(ind).getColor()));
+        repaintGradient();
+      }
+    });
+
+    return slider;
+  }
+
+  void setDisableButtons() {
+    if (stopsList.size() == 0) {
+      if(!delButton.isDisable()) {
+        delButton.setDisable(true);
+        colorPicker.setValue(Color.TRANSPARENT);
+        colorPicker.setDisable(true);
+      }
+    } else if (delButton.isDisable()) {
+      delButton.setDisable(false);
+      colorPicker.setDisable(false);
+    }
+  }
+
+  void repaintGradient() {
+    linearGradient = new LinearGradient(0, 0, 1, 0, true, CycleMethod.NO_CYCLE, stopsList);
+    ((Rectangle)bar.getChildren().get(1)).setFill(linearGradient);
+  }
+
+  void selectSlider(int newSelect) {
+    if (newSelect != select) {
+      if (select &gt;= 0) {
+        ((Polygon)slidersList.get(select).getChildren().get(1)).setStrokeWidth(1);
+        ((Polygon)slidersList.get(select).getChildren().get(1)).setStroke(Color.BLACK);
+      }
+      assert newSelect &gt;= 0;
+      ((Polygon)slidersList.get(newSelect).getChildren().get(1)).setStrokeWidth(2);
+      ((Polygon)slidersList.get(newSelect).getChildren().get(1)).setStroke(Color.DODGERBLUE);
+      colorPicker.setValue(stopsList.get(newSelect).getColor());
+      slidersList.get(newSelect).toFront();
+      select = newSelect;
+    }
+  }
+
+  ImagePattern patternTransparent() {
+    Canvas canvas = new Canvas(patternSize, patternSize);
+    GraphicsContext gc = canvas.getGraphicsContext2D();
+    gc.setFill(Color.WHITE);
+    gc.fillRect(0, 0, patternSize, patternSize);
+    gc.setFill(Color.rgb(205, 205, 205));
+    gc.fillRect(0, 0, patternSize / 2, patternSize / 2);
+    gc.fillRect(patternSize / 2, patternSize / 2, patternSize, patternSize);
+    WritableImage image = canvas.snapshot(new SnapshotParameters(), null);
+    return new ImagePattern(image, 0, 0, patternSize, patternSize, false);
+  }
+}
+</pre>
+<p><b><a href="Gradient.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
