@@ -1,0 +1,122 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, Regex, Regular Expression Tester, Regular Expression, Tester, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, Regex, Regular Expression Tester, Regular Expression, Tester, Download, Source, Free">
+<title>Java Regular Expression Tester</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Java Regular Expression Tester</p>
+<a href="Regex.jpg"><img src="Regex.jpg" width="150" height="150" alt="Java Regular Expression Tester" title="Java Regular Expression Tester"></a>
+<p></p>
+<pre>
+----------------- Regex.java -------------------
+
+import java.util.regex.*;
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.scene.paint.*;
+import javafx.scene.web.*;
+import javafx.geometry.*;
+
+public class Regex extends Application {
+
+  TextField textField;
+  TextArea textArea;
+  WebEngine webEngine;
+  Pattern pattern;
+  StringBuilder sb = new StringBuilder();
+
+  @Override
+  public void start(Stage stage) {
+    textField = new TextField();
+    textArea = new TextArea();
+
+    textField.textProperty().addListener((v, o, n) -&gt; update(true));
+    textArea.textProperty().addListener((v, o, n) -&gt; update(false));
+
+    WebView webView = new WebView();
+    webEngine = webView.getEngine();
+    webEngine.loadContent(&quot;&lt;html&gt;&lt;head&gt;&lt;style&gt;.m{background-color:#F0EEA0;color:red;}&lt;/style&gt;&lt;/head&gt;&lt;body&gt;&lt;/body&gt;&lt;/html&gt;&quot;);
+    //webView.setZoom(.77);
+
+    StackPane stackPane = new StackPane(webView);
+    stackPane.setBackground(new Background(new BackgroundFill(Color.WHITE, CornerRadii.EMPTY, Insets.EMPTY)));
+    stackPane.setBorder(new Border(new BorderStroke(Color.web(&quot;CECECE&quot;), BorderStrokeStyle.SOLID, new CornerRadii(2), BorderWidths.DEFAULT)));
+
+    Label label1 = new Label(&quot;Regex:&quot;), label2 = new Label(&quot;Text:&quot;), label3 = new Label(&quot;Result:&quot;);
+    Insets insets = new Insets(2,0,2,9);
+    label1.setPadding(insets);
+    label2.setPadding(insets);
+    label3.setPadding(insets);
+
+    SplitPane splitPane = new SplitPane(new VBox(label2, textArea), new VBox(label3, stackPane));
+    splitPane.setOrientation(Orientation.VERTICAL);
+
+    VBox vBox = new VBox(new VBox(label1, textField), splitPane);
+    VBox.setVgrow(textArea, Priority.ALWAYS);
+
+    stage.setScene(new Scene(vBox, 300, 300));
+    stage.show();
+
+    Platform.runLater(() -&gt; {
+      textField.setText(&quot;[0-9a-z]*&quot;);
+      textArea.setText(&quot;0123456789\n!\&quot;#$%&amp;\'()*+,-./:;&lt;=&gt;?@[\\]^_{|}\nABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz&quot;);
+    });
+  }
+
+  void update(boolean b) {
+    if (b) {
+      pattern = null;
+      try {
+        pattern = Pattern.compile(textField.getText());
+      } catch (Exception e) { }
+    }
+    sb.setLength(0);
+    if (pattern == null) {
+      sb.append(&quot;&lt;span style=\&quot;color:Red\&quot;&gt;Pattern Error&lt;/span&gt;&quot;);
+    } else {
+      String str = textArea.getText();
+      Matcher matcher = pattern.matcher(str);
+      int pos = 0;
+      while (matcher.find()) {
+        app(str.substring(pos, matcher.start()));
+        sb.append(&quot;&lt;span class=\&quot;m\&quot;&gt;&quot;);
+        app(matcher.group());
+        sb.append(&quot;&lt;/span&gt;&quot;);
+        pos = matcher.end();
+      }
+      if (pos &gt; 0) app(str.substring(pos));
+    }
+    webEngine.executeScript(&quot;document.body.innerHTML='&quot; + sb.toString() + &quot;'&quot;);
+  }
+
+  void app(String s) {
+    for(int i = 0, len = s.length(); i &lt; len; i++) {
+      char ch = s.charAt(i);
+      switch (ch) {
+        case ' ' : sb.append(&quot;&amp;nbsp;&quot;); break;
+        case '&amp;' : sb.append(&quot;&amp;amp;&quot;); break;
+        case '&lt;' : sb.append(&quot;&amp;lt;&quot;); break;
+        case '&gt;' : sb.append(&quot;&amp;gt;&quot;); break;
+        //case '\&quot;': sb.append(&quot;&amp;quot;&quot;); break;
+        case '\'': sb.append(&quot;&amp;apos;&quot;); break;
+        case '\\': sb.append(&quot;&amp;#92;&quot;); break;
+        case '\n': sb.append(&quot;&lt;br&gt;&quot;); break;
+        default  : sb.append(ch);
+      }
+    }
+  }  
+
+}
+</pre>
+<p><b><a href="Regex.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
