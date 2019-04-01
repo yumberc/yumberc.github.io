@@ -1,0 +1,426 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, DBF, Viewer, Editor, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, DBF, Viewer, Editor, Download, Source, Free">
+<title>SmDBF.java</title>
+</head>
+<body bgcolor="#FFFFFF">
+<pre>
+
+import java.io.*;
+import java.util.*;
+import java.text.*;
+import java.nio.charset.*;
+import java.math.BigDecimal;
+
+public class SmDBF implements Closeable {
+
+  private final SimpleDateFormat DFormat = new SimpleDateFormat(&quot;yyyyMMdd&quot;);
+  private final SimpleDateFormat TFormat = new SimpleDateFormat(&quot;yyyyMMddHHmmss&quot;);
+  private Charset charset = StandardCharsets.ISO_8859_1;
+  private File file;
+  private RandomAccessFile raf = null;
+  private byte[] emptyRec = null;
+  private String[] name;
+  private char[] type;
+  private int[] length, lengthDecimal, offset;
+  private int headerLength, recordLength, recCount = 0, currentRec = 0;
+  private boolean modified = false, bof = true, eof = true;
+
+  public SmDBF(File file) throws IOException {
+    this.file = file;
+    if (!file.isFile()) throw new IOException(&quot;file does not exist: &quot; + file.getName());
+    raf = new RandomAccessFile(file, &quot;rw&quot;);
+    try {
+      if (raf.length() &lt; 65) corrupted();
+      recCount = readRecCount();
+      setCurrentRec(1);
+      raf.seek(8);
+      headerLength = read() + (read() &lt;&lt; 8);
+      recordLength = read() + (read() &lt;&lt; 8);
+      int fc = (headerLength - 33) / 32;
+      raf.seek((fc + 1) * 32);
+      if (raf.length() &lt; raf.getFilePointer() + 1 || read() != 13 || raf.length() &lt; recCount * recordLength + headerLength) corrupted();
+      name = new String[fc];
+      type = new char[name.length];
+      length = new int[name.length];
+      lengthDecimal = new int[name.length];
+      offset = new int[name.length];
+      int sm = 1;
+      for (int i = 0; i &lt; name.length; i++) {
+        raf.seek(i * 32 + 32);
+        byte[] bytes = new byte[11];
+        read(bytes);
+        int z = 0;
+        while (z &lt; bytes.length &amp;&amp; bytes[z] != 0) z++;
+        name[i] = new String(bytes, 0, z).trim().toUpperCase();
+        type[i] = Character.toUpperCase((char)read());
+        raf.skipBytes(4);
+        length[i] = read();
+        if (type[i] == &apos;C&apos;) { length[i] += read() &lt;&lt; 8; lengthDecimal[i] = 0; }
+        else lengthDecimal[i] = read();
+        offset[i] = sm;
+        sm += length[i];
+      }
+      if (sm != recordLength) corrupted();
+      checkStructure();
+    } catch (Exception e) { close(); throw e; }
+  }
+
+  private void corrupted() throws IOException { throw new IOException(&quot;file is not valid or is corrupted&quot;); }
+
+  public SmDBF(File file, Object[][] fields) throws IOException {
+    if (fields.length == 0) throw new IOException(&quot;array is empty&quot;);
+    this.file = file;
+    name = new String[fields.length];
+    type = new char[fields.length];
+    length = new int[fields.length];
+    lengthDecimal = new int[fields.length];
+    offset = new int[fields.length];
+    headerLength = (fields.length + 1) * 32 + 1;
+    recordLength = 1;
+    for (int i = 0; i &lt; fields.length; i++) {
+      name[i] = ((String)fields[i][0]).trim().toUpperCase();
+      if (name[i].length() == 0 || name[i].length() &gt; 10) throw new IOException(&quot;invalid field length: &quot; + name[i]);
+      if (!checkFieldName(name[i])) throw new IOException(&quot;invalid field name: &quot; + name[i]);
+      type[i] = Character.toUpperCase((char)fields[i][1]);
+      length[i] = (int)fields[i][2];
+      lengthDecimal[i] = (int)fields[i][3];
+      offset[i] = recordLength;
+      recordLength += length[i];
+    }
+    checkStructure();
+    raf = new RandomAccessFile(file, &quot;rw&quot;);
+    try {
+      raf.setLength(0L);
+      byte[] bytes = new byte[32];
+      Arrays.fill(bytes, (byte)0); 
+      bytes[0] = 3;
+      byte[] dt = getDate();
+      bytes[1] = dt[0];
+      bytes[2] = dt[1];
+      bytes[3] = dt[2];
+      bytes[8] = (byte)(0xff &amp; headerLength);
+      bytes[9] = (byte)(0xff &amp; headerLength &gt;&gt; 8);
+      bytes[10] = (byte)(0xff &amp; recordLength);
+      bytes[11] = (byte)(0xff &amp; recordLength &gt;&gt; 8);
+      raf.write(bytes);
+      for (int r = 0; r &lt; name.length; r++) {
+        Arrays.fill(bytes, (byte)0); 
+        String s = name[r];
+        for (int i = 0; i &lt; s.length() &amp;&amp; i &lt; 10; i++) bytes[i] = (byte)s.charAt(i);
+        bytes[11] = (byte)(0xff &amp; type[r]);
+        bytes[16] = (byte)(0xff &amp; length[r]);
+        if (type[r] == &apos;C&apos;) bytes[17] = (byte)(0xff &amp; length[r] &gt;&gt; 8);
+        else bytes[17] = (byte)(0xff &amp; lengthDecimal[r]);
+        raf.write(bytes);
+      }
+      raf.write(13);
+      raf.write(26);
+    } catch (Exception e) { close(); throw e; }
+  }
+
+  @Override
+  public void close() throws IOException {
+    if (raf != null) {
+      if (modified) try { raf.seek(1); raf.write(getDate()); } catch (Exception e) { }
+      raf.close();
+      raf = null;
+    }
+  }
+
+  private void checkStructure() throws IOException {
+    if (headerLength &gt; 0xFFFF || recordLength &gt; 0xFFFF) throw new IOException(&quot;invalid header length&quot;);
+    for (int i = 0; i &lt; name.length; i++) {
+      for (int j = i + 1; j &lt; name.length; j++) if(name[i].equals(name[j])) throw new IOException(&quot;field is duplicate: &quot;+name[i]);
+      if (type[i] != &apos;C&apos; &amp;&amp; type[i] != &apos;N&apos; &amp;&amp; type[i] != &apos;F&apos; &amp;&amp; type[i] != &apos;L&apos; &amp;&amp; type[i] != &apos;D&apos; &amp;&amp; type[i] != &apos;T&apos; &amp;&amp; type[i] != &apos;M&apos;) throw new IOException(&quot;field type should be D,T,C,M,N,F,L: &quot; + name[i]);
+      if (type[i] == &apos;L&apos; &amp;&amp; length[i] != 1) throw new IOException(&quot;field length should be 1: &quot; + name[i]);
+      if (type[i] == &apos;D&apos; &amp;&amp; length[i] != 8) throw new IOException(&quot;field length should be 8: &quot; + name[i]);
+      if (type[i] == &apos;T&apos; &amp;&amp; length[i] != 14) throw new IOException(&quot;field length should be 14: &quot; + name[i]);
+      if (type[i] == &apos;M&apos; &amp;&amp; length[i] != 10) throw new IOException(&quot;field length should be 10: &quot; + name[i]);
+      if (length[i] &lt; 0 || lengthDecimal[i] &lt; 0) throw new IOException(&quot;length or lengthDecimal is negative &quot; + name[i]);
+      if (length[i] == 0) throw new IOException(&quot;field length should be greater than 0: &quot; + name[i]);
+      if (type[i] != &apos;N&apos; &amp;&amp; type[i] != &apos;F&apos; &amp;&amp; lengthDecimal[i] &gt; 0) throw new IOException(&quot;lengthDecimal should be 0: &quot; + name[i]);
+      if ((type[i] == &apos;N&apos; || type[i] == &apos;F&apos;) &amp;&amp; length[i] &gt; 0xFF) throw new IOException(&quot;invalid field length: &quot; + name[i]);
+      if ((type[i] == &apos;N&apos; || type[i] == &apos;F&apos;) &amp;&amp; lengthDecimal[i] &gt; 0 &amp;&amp; lengthDecimal[i] &gt; length[i] - 2) throw new IOException(&quot;invalid decimal length: &quot; + name[i]);
+    }
+  }
+
+  private byte[] getDate() {
+    byte[] bytes = new byte[3];
+    Calendar calendar = Calendar.getInstance();
+    bytes[0] = (byte)(calendar.get(Calendar.YEAR) - 1900);
+    bytes[1] = (byte)(calendar.get(Calendar.MONTH) + 1);
+    bytes[2] = (byte)calendar.get(Calendar.DAY_OF_MONTH);
+    return bytes;
+  }
+
+  public void append() throws IOException {
+    if (emptyRec == null) {
+      emptyRec = new byte[recordLength];
+      Arrays.fill(emptyRec, (byte)32);
+    }
+    append(emptyRec);
+  }
+
+  public void append(byte[] bytes) throws IOException {
+    if (bytes.length != recordLength) throw new IOException(&quot;bad array length&quot;);
+    recCount++;  //recCount = readRecCount() + 1;
+    currentRec = recCount;
+    writeRecord(bytes);
+    raf.write(26);
+    writeRecCount(recCount);
+    setCurrentRec(recCount);
+  }
+
+  private void writeRecCount(int rc) throws IOException {
+    raf.seek(4);
+    for (int i = 0; i &lt; 4; i++) raf.write((byte)(0xff &amp; rc &gt;&gt;&gt; i * 8));
+    if (!modified) modified = true;
+  }
+
+  public void zap() throws IOException {
+    raf.seek(headerLength);
+    raf.write(26);
+    raf.setLength(raf.getFilePointer());
+    recCount = 0;
+    writeRecCount(0);
+    setCurrentRec(0);
+  }
+
+  public void pack() throws IOException {
+    byte[] bytes = new byte[recordLength];
+    bytes[0] = 32;
+    currentRec = 0;
+    int i = 0;
+    //recCount = readRecCount();
+    while (i &lt; recCount) {
+      raf.seek(i * recordLength + headerLength);
+      int d = read();
+      i++;
+      if (d != 42) {
+        currentRec++;
+        if (i &gt; currentRec) {
+          read(bytes, 1, recordLength - 1);
+          writeRecord(bytes);
+        }
+      }
+    }
+    if (recCount &gt; currentRec) {
+      raf.seek(currentRec * recordLength + headerLength);
+      raf.write(26);
+      raf.setLength(raf.getFilePointer());
+      recCount = currentRec;
+      writeRecCount(recCount);
+    }
+    setCurrentRec(currentRec);
+  }
+
+  public boolean bof() { return bof; }
+  public boolean eof() { return eof; }
+
+  public void skip() { setCurrentRec(currentRec + 1); }
+  public void skip(int n) { setCurrentRec(currentRec + n); }
+  public void goTop() { setCurrentRec(1); }
+  public void goEnd() { setCurrentRec(recCount); }
+  public void goToRec(int n) { setCurrentRec(n); }
+
+  private void setCurrentRec(int n) {
+    if (recCount == 0) { currentRec = 0; bof = eof = true; }
+    else if (n &lt; 1) { currentRec = 0; bof = true; eof = false; }
+    else if (n &gt; recCount) { currentRec = recCount + 1; bof = false; eof = true; }
+    else { currentRec = n; bof = eof = false; }
+  }
+
+  public int getRecCount() { return recCount; }
+  public int getCurrentRec() { return currentRec; }
+  public int getFieldCount() { return name.length; }
+  public int getHeaderLength() { return headerLength; }
+  public int getRecordLength() { return recordLength; }
+  public boolean isModified() { return modified; }
+  public boolean isClosed() { return raf == null; }
+
+  public int getFieldNumber(String s) {
+    s = s.trim().toUpperCase();
+    for (int i = 0; i &lt; name.length; i++) if (s.equals(name[i])) return i + 1;
+    throw new IllegalArgumentException(&quot;field not found: &quot; + s);
+  }
+
+  public String getFieldName(int n) { checkFieldNumber(n); return name[n - 1]; }
+  public char getFieldType(int n) { checkFieldNumber(n); return type[n - 1]; }
+  public int getFieldLength(int n) { checkFieldNumber(n); return length[n - 1]; }
+  public int getFieldLengthDecimal(int n) { checkFieldNumber(n); return lengthDecimal[n - 1]; }
+
+  private void checkFieldNumber(int n) {
+    if (n &lt; 1 || n &gt; name.length) throw new IndexOutOfBoundsException(&quot;field number is out of bounds: &quot; + n);
+  }
+
+  private void checkCurrentRec() {
+    if (currentRec &lt; 1 || currentRec &gt; recCount) throw new IndexOutOfBoundsException(&quot;current record is out of bounds: &quot; + currentRec);
+  }
+
+  public void set(String s, Object obj) throws IOException { set(getFieldNumber(s), obj); }
+
+  public void set(int n, Object obj) throws IOException {
+    checkFieldNumber(n);
+    checkCurrentRec();
+    byte[] bytes;
+    int i = n - 1;
+    if (obj == null) {
+      bytes = new byte[length[i]];
+      Arrays.fill(bytes, (byte)32); 
+    } else if (type[i] == &apos;C&apos; &amp;&amp; obj instanceof String) {
+      bytes = new byte[length[i]];
+      byte[] byff = rtrim((String)obj).getBytes(charset);
+      if (byff.length &gt; length[i]) throw new IOException(&quot;field overflow: &quot; + name[i]);
+      for (int j = 0; j &lt; bytes.length; j++)
+        bytes[j] = j &lt; byff.length ? byff[j] : (byte)32;
+    } else if (type[i] == &apos;L&apos; &amp;&amp; obj instanceof Boolean) {
+      bytes = new byte[] {(byte)(((Boolean)obj).booleanValue() ? 84 : 70)};
+    } else if ((type[i] == &apos;D&apos; || type[i] == &apos;T&apos;) &amp;&amp; obj instanceof Date) {
+      Date date = (Date)obj;
+      bytes = (type[i] == &apos;D&apos; ? DFormat : TFormat).format(date).getBytes();
+    } else if ((type[i] == &apos;N&apos; || type[i] == &apos;F&apos; || type[i] == &apos;M&apos;) &amp;&amp; obj instanceof BigDecimal) {
+      BigDecimal v = (BigDecimal)obj;
+      if (lengthDecimal[i] == 0) {
+        String f = &quot;%&quot;+length[i]+&quot;d&quot;;
+        bytes = String.format(f, v.toBigInteger()).getBytes();
+      } else {
+        String f = &quot;%&quot;+length[i]+&quot;.&quot;+lengthDecimal[i]+&quot;f&quot;;
+        Locale lc = new Locale.Builder().build();
+        bytes = String.format(lc, f, v).getBytes();
+      }
+      if (bytes.length &gt; length[i]) throw new IOException(&quot;field overflow: &quot; + name[i]);
+    } else {
+      String s = type[i] == &apos;C&apos; ? &quot;String&quot; : type[i] == &apos;L&apos; ? &quot;Boolean&quot; :
+        (type[i] == &apos;D&apos; || type[i] == &apos;T&apos;) ? &quot;Date&quot; :
+        (type[i] == &apos;N&apos; || type[i] == &apos;F&apos; || type[i] == &apos;M&apos;) ? &quot;BigDecimal&quot; : &quot;&quot;;
+      throw new IOException(&quot;demands &quot; + s + &quot; or null: &quot; + name[i]);
+    }
+    raf.seek((currentRec - 1) * recordLength + headerLength + offset[i]);
+    raf.write(bytes);
+    if (!modified) modified = true;
+  }
+
+  public Object get(String s) throws IOException { return get(getFieldNumber(s)); }
+
+  public Object get(int n) throws IOException {
+    checkFieldNumber(n);
+    checkCurrentRec();
+    int i = n - 1;
+    byte[] bytes = new byte[length[i]];
+    raf.seek((currentRec - 1) * recordLength + headerLength + offset[i]);
+    read(bytes);
+    if (type[i] == &apos;C&apos;) {
+      return new String(bytes, charset);
+    } else if (type[i] == &apos;L&apos;) {
+      byte b = bytes[0];
+      if (b == &apos;T&apos; || b == &apos;t&apos; || b == &apos;Y&apos; || b == &apos;y&apos;) return Boolean.valueOf(true); 
+      if (b == &apos;F&apos; || b == &apos;f&apos; || b == &apos;N&apos; || b == &apos;n&apos;) return Boolean.valueOf(false); 
+    } else if (type[i] == &apos;D&apos; || type[i] == &apos;T&apos;) {
+      try { return (type[i] == &apos;D&apos; ? DFormat : TFormat).parse(new String(bytes)); } catch (Exception e) { }
+    } else if (type[i] == &apos;N&apos; || type[i] == &apos;F&apos; || type[i] == &apos;M&apos;) {
+      try { return new BigDecimal(new String(bytes).trim()); } catch (Exception e) { }
+    }
+    return null;
+  }
+
+  public void delete() throws IOException { setDeleted(true); }
+  public void recall() throws IOException { setDeleted(false); }
+
+  public void setDeleted(boolean b) throws IOException {
+    checkCurrentRec();
+    raf.seek((currentRec - 1) * recordLength + headerLength);
+    raf.write((byte)(b ? 42 : 32));
+    if (!modified) modified = true;
+  }
+
+  public boolean isDeleted() throws IOException {
+    checkCurrentRec();
+    raf.seek((currentRec - 1) * recordLength + headerLength);
+    return read() == 42;
+  }
+
+  public void writeRecord(byte[] bytes) throws IOException {
+    checkCurrentRec();
+    if (bytes.length != recordLength) throw new IOException(&quot;bad record length&quot;);
+    raf.seek((currentRec - 1) * recordLength + headerLength);
+    raf.write(bytes);
+    if (!modified) modified = true;
+  }
+
+  public void readRecord(byte[] bytes) throws IOException {
+    checkCurrentRec();
+    if (bytes.length != recordLength) throw new IOException(&quot;bad record length&quot;);
+    raf.seek((currentRec - 1) * recordLength + headerLength);
+    read(bytes);
+  }
+
+  public int readRecCount() throws IOException {
+    raf.seek(4);
+    int rc = 0;
+    for (int i = 0; i &lt; 4; i++) rc += read() &lt;&lt; i * 8;
+    return rc;
+  }
+
+  private void read(byte[] b) throws IOException {
+    if (b.length != raf.read(b)) throw new EOFException();
+  }
+
+  private void read(byte[] b, int off, int len) throws IOException {
+    if (len != raf.read(b, off, len)) throw new EOFException();
+  }
+
+  private int read() throws IOException {
+    int ch = raf.read();
+    if (ch == -1) throw new EOFException();
+    return ch;
+  }
+
+  public void setCharset(String s) { charset = Charset.forName(s); }
+
+  public Object[][] getStructure() {
+    Object[][] fields = new Object[name.length][];
+    for (int i = 0; i &lt; name.length; i++) {
+      fields[i] = new Object[] { name[i], type[i], length[i], lengthDecimal[i] };
+    }
+    return fields;
+  }
+
+  @Override
+  public String toString() {
+    StringBuilder sb = new StringBuilder();
+    sb.append(&quot;File: &quot; + file.getName() + &quot;, &quot;);
+    for (int i = 0; i &lt; name.length; i++) {
+      if (i &gt; 0) sb.append(&quot;, &quot;);
+      sb.append(&quot;{&quot; + name[i] + &quot;, &quot; + type[i] + &quot;, &quot; + length[i] + &quot;, &quot; + lengthDecimal[i] + &quot;}&quot;);
+    }
+    sb.append(&quot;, Header: &quot; + headerLength + &quot;b, Record: &quot; + recordLength + &quot;b&quot;);
+    sb.append(&quot;, Fields: &quot; + name.length + &quot;, Records: &quot; + recCount);
+    return sb.toString();
+  }
+
+  public static boolean checkFieldName(String name) {
+    return name.matches(&quot;([A-Z]|_+[A-Z0-9])[A-Z0-9_]*&quot;);
+  }
+
+  public static String typeToString(char t) {
+    return t == &apos;C&apos; ? &quot;Character&quot; : t == &apos;L&apos; ? &quot;Logical&quot; : t == &apos;M&apos; ? &quot;Memo&quot; :
+           t == &apos;D&apos; ? &quot;Date&quot; : t == &apos;T&apos; ? &quot;DateTime&quot; : t == &apos;N&apos; ? &quot;Numeric&quot; : t == &apos;F&apos; ? &quot;Float&quot; : &quot;&quot;;
+  }
+
+  public static String rtrim(String s) {
+    int i = s.length() - 1;
+    while (i &gt;= 0 &amp;&amp; s.charAt(i) &lt;= &apos; &apos;) i--;
+    return s.substring(0, i + 1);
+  }
+
+  public static String ltrim(String s) {
+    int i = 0;
+    while (i &lt; s.length() &amp;&amp; s.charAt(i) &lt;= &apos; &apos;) i++;
+    return s.substring(i);
+  }
+
+} // End of class SmDBF
+</pre>
+</body></html>

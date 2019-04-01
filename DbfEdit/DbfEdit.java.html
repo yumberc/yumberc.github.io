@@ -1,0 +1,284 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, DBF, Viewer, Editor, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, DBF, Viewer, Editor, Download, Source, Free">
+<title>DbfEdit.java</title>
+</head>
+<body bgcolor="#FFFFFF">
+<pre>
+
+import java.util.*;
+import java.io.*;
+import java.text.*;
+import java.math.BigDecimal;
+
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.control.*;
+import javafx.scene.control.TableColumn.*;
+import javafx.scene.layout.*;
+import javafx.collections.*;
+import javafx.beans.property.*;
+import javafx.geometry.*;
+import javafx.scene.input.*;
+
+public class DbfEdit extends Application {
+
+  Stage stage;
+  Label label;
+  SmDBF dbf;
+  String dStFormat = &quot;yyyy/MM/dd&quot;;
+  String tStFormat = &quot;yyyy/MM/dd-HH:mm:ss&quot;;
+
+  @Override
+  public void start(Stage stage) {
+    this.stage = stage;
+    BorderPane layout = new BorderPane();
+    stage.setScene(new Scene(layout, 700, 400));
+    TableView&lt;IntVal&gt; tableView = new TableView&lt;&gt;();
+    label = new Label();
+    File file;
+    List&lt;String&gt; p = getParameters().getRaw();
+    if (!p.isEmpty()) {
+      file = new File(p.get(0));
+      if (!file.isFile()) throw new RuntimeException(file.getName() + &quot; file not found&quot;);
+    } else file = new File(&quot;demo.dbf&quot;);
+    try {
+      if (file.exists())
+        dbf = new SmDBF(file);
+      else {
+        dbf = new SmDBF(file, new Object[][] {
+          {&quot;FIELD1_C&quot;, &apos;C&apos;, 20, 0},
+          {&quot;FIELD2_L&quot;, &apos;L&apos;,  1, 0},
+          {&quot;FIELD3_D&quot;, &apos;D&apos;,  8, 0},
+          {&quot;FIELD4_T&quot;, &apos;T&apos;, 14, 0},
+          {&quot;FIELD5_N&quot;, &apos;N&apos;, 15, 0},
+          {&quot;FIELD6_F&quot;, &apos;F&apos;,  7, 2}
+        });
+        //dbf.setCharset(&quot;cp437&quot;);
+        for (int i = 0; i &lt; 20; i++) {
+          dbf.append();
+          dbf.set(1, &quot;Record &quot; + i);
+          dbf.set(2, true);
+          dbf.set(3, new Date());
+          dbf.set(4, new Date());
+          dbf.set(5, new BigDecimal(i));
+          dbf.set(6, new BigDecimal(i));
+        }
+      }
+    } catch (Exception e) { throw new RuntimeException(e); }
+    try {
+      tableView.setItems(new VirtObservableList());
+      for (int i = 1; i &lt;= dbf.getFieldCount(); i++) {
+        final int f = i;
+        TableColumn&lt;IntVal, IntVal&gt; column = new TableColumn&lt;&gt;(dbf.getFieldName(f));
+        column.setCellValueFactory(cd -&gt; new ReadOnlyObjectWrapper&lt;IntVal&gt;(cd.getValue()));
+        column.setCellFactory(c -&gt; {
+          TableCell&lt;IntVal, IntVal&gt; cell = new TableCell&lt;IntVal, IntVal&gt;() {
+
+            @Override
+            protected void updateItem(IntVal item, boolean empty) {
+              super.updateItem(item, empty);
+              if (item == null || empty) {
+                setText(null);
+                setStyle(&quot;&quot;);
+              } else {
+                String s;
+                Object obj = null;
+                dbf.goToRec(item.get() + 1);
+                char type = dbf.getFieldType(f);
+                if (type == &apos;M&apos;) s = SmDBF.typeToString(type);
+                else {
+                  try {
+                    obj = dbf.get(f);
+                    if (obj == null) {
+                      s = &quot;null&quot;;
+                    } else if (obj instanceof Boolean) {
+                      s = (Boolean)obj ? &quot;T&quot; : &quot;F&quot;;
+                    } else if (obj instanceof Date) {
+                      s = new SimpleDateFormat(type == &apos;D&apos; ? dStFormat : tStFormat).format((Date)obj);
+                    } else if (obj instanceof String) {
+                      s = SmDBF.rtrim((String)obj);
+                    } else s = obj.toString();
+                  } catch (Exception e) { s = &quot;error&quot;; }
+                }
+                if (type == &apos;N&apos; || type == &apos;F&apos;) setAlignment(Pos.CENTER_RIGHT);
+                try {
+                  String style = dbf.isDeleted() ? &quot;-fx-accent&quot; : &quot;-fx-text-base-color&quot;;
+                  setStyle(&quot;-fx-text-fill: &quot; + style);
+                } catch (Exception e) { }
+                setText(s);
+              }
+            }
+          };
+          return cell;
+        });
+        if (dbf.getFieldLength(f) &gt; 30) column.setPrefWidth(200);
+        tableView.getColumns().add(column);
+      }
+    } catch (Exception e) { e.printStackTrace(); }
+
+    tableView.setOnKeyPressed(ke -&gt; {
+      try {
+        VirtObservableList items = (VirtObservableList)tableView.getItems();
+        if (ke.getCode() == KeyCode.INSERT) {
+          Alert alert = new Alert(Alert.AlertType.CONFIRMATION, &quot;Append record?&quot;);
+          alert.initOwner(stage);
+          alert.setHeaderText(null);
+          Optional&lt;ButtonType&gt; result = alert.showAndWait();
+          if (result.get() == ButtonType.OK){
+            dbf.append();
+            items.insert(items.size());
+            tableView.getSelectionModel().selectLast();
+            tableView.scrollTo(tableView.getSelectionModel().getSelectedIndices().get(0));
+          }
+        } else if (ke.getCode() == KeyCode.DELETE) {
+          IntVal item = tableView.getSelectionModel().getSelectedItems().get(0);
+          if (item != null) {
+            dbf.goToRec(item.get() + 1);
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION, (dbf.isDeleted() ? &quot;Recall&quot; : &quot;Delete&quot;) + &quot; record?&quot;);
+            alert.initOwner(stage);
+            alert.setHeaderText(null);
+            Optional&lt;ButtonType&gt; result = alert.showAndWait();
+            if (result.get() == ButtonType.OK){
+              dbf.setDeleted(!dbf.isDeleted());
+              @SuppressWarnings(&quot;unchecked&quot;) TablePosition&lt;IntVal,?&gt; oldPos = tableView.getSelectionModel().getSelectedCells().get(0);
+              items.update(item.get());
+              tableView.getSelectionModel().select(oldPos.getRow(), oldPos.getTableColumn());
+            }
+          }
+        } else if (ke.getCode() == KeyCode.ENTER) {
+          IntVal item = tableView.getSelectionModel().getSelectedItems().get(0);
+          if (item != null) {
+            dbf.goToRec(item.get() + 1);
+            int c = tableView.getSelectionModel().getSelectedCells().get(0).getColumn() + 1;
+            char t = dbf.getFieldType(c);
+            if (t != &apos;M&apos;) {
+              Object obj = dbf.get(c);
+              String s = &quot;&quot;, l = &quot;&quot;;
+              int len;
+              if (t == &apos;C&apos;) {
+                s = SmDBF.rtrim(obj.toString());
+                len = dbf.getFieldLength(c);
+                l = &quot;Length: &quot; + len;
+              } else if (t == &apos;L&apos;) {
+                s = obj == null ? &quot;F&quot; : (Boolean)obj ? &quot;T&quot; : &quot;F&quot;;
+                len = 1;
+                l = &quot;Value: T or F&quot;;
+              } else if (t == &apos;D&apos; || t == &apos;T&apos;) {
+                String stFormat = t == &apos;D&apos; ? dStFormat : tStFormat;
+                s = new SimpleDateFormat(stFormat).format(obj == null ? new Date() : (Date)obj);
+                len = stFormat.length();
+                l = &quot;Format: &quot; + stFormat.toUpperCase();
+              } else if (t == &apos;N&apos; || t == &apos;F&apos;) {
+                s = obj == null ? &quot;0&quot; : obj.toString();
+                len = dbf.getFieldLength(c);
+                l = &quot;Length: &quot; + len + (dbf.getFieldLengthDecimal(c) &gt; 0 ? &quot;.&quot; + dbf.getFieldLengthDecimal(c) : &quot;&quot;);
+              } else len = 0;
+              TextInputDialog dialog = new TextInputDialog(s);
+              dialog.initOwner(stage);
+              dialog.setHeaderText(null);
+              dialog.setContentText(dbf.getFieldName(c));
+              dialog.getDialogPane().setExpandableContent(new Label(&quot;Type: &quot; + SmDBF.typeToString(t) + &quot;, &quot; + l));
+              dialog.getDialogPane().setExpanded(true);
+              TextField tf = dialog.getEditor();
+              tf.textProperty().addListener((observable, oldValue, newValue) -&gt; {
+                if (tf.getText().length() &gt; len) tf.setText(tf.getText().substring(0, len));
+              });
+              //if (t == &apos;N&apos; || t == &apos;F&apos;) tf.setAlignment(Pos.CENTER_RIGHT);
+              Optional&lt;String&gt; result = dialog.showAndWait();
+              if (result.isPresent()) {
+                obj = null;
+                try {
+                  if (t == &apos;C&apos;) {
+                    obj = result.get();
+                  } else if (t == &apos;L&apos;) {
+                    if (result.get().equalsIgnoreCase(&quot;T&quot;)) obj = Boolean.valueOf(true);
+                    else if (result.get().equalsIgnoreCase(&quot;F&quot;)) obj = Boolean.valueOf(false);
+                  } else if (t == &apos;D&apos; || t == &apos;T&apos;) {
+                    obj = new SimpleDateFormat(t == &apos;D&apos; ? dStFormat : tStFormat).parse(result.get());
+                  } else if (t == &apos;N&apos; || t == &apos;F&apos;) {
+                    obj = new BigDecimal(result.get());
+                  }
+                } catch (Exception e) { }
+                try { dbf.set(c, obj); } catch (Exception e) {
+                  Alert alert = new Alert(Alert.AlertType.ERROR, e.toString(), ButtonType.OK);
+                  alert.initOwner(stage);
+                  alert.setHeaderText(null);
+                  alert.showAndWait();
+                }
+                @SuppressWarnings(&quot;unchecked&quot;) TablePosition&lt;IntVal,?&gt; oldPos = tableView.getSelectionModel().getSelectedCells().get(0);
+                items.update(item.get());
+                tableView.getSelectionModel().select(oldPos.getRow(), oldPos.getTableColumn());
+              }
+            }
+          }
+        }
+      } catch (Exception e) { }
+    });
+    tableView.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
+    tableView.getSelectionModel().setCellSelectionEnabled(true);
+    tableView.sortPolicyProperty().set(t -&gt; false);
+
+    @SuppressWarnings(&quot;rawtypes&quot;) ObservableList&lt;TablePosition&gt; selectedCells = tableView.getSelectionModel().getSelectedCells();
+    selectedCells.addListener((@SuppressWarnings(&quot;rawtypes&quot;) ListChangeListener.Change&lt;? extends TablePosition&gt; change) -&gt; {
+      if (selectedCells.size() &gt; 0) {
+        TablePosition&lt;?,?&gt; pos = (TablePosition&lt;?,?&gt;)selectedCells.get(0);
+        label.setText(String.format(&quot;Field: %5d / %d   Record: %7d / %d&quot;, pos.getColumn() + 1, dbf.getFieldCount(), pos.getRow() + 1, dbf.getRecCount()));
+      } else {
+        label.setText(&quot;&quot;);
+      }
+    });
+    tableView.getSelectionModel().select(0, tableView.getColumns().get(0));
+    layout.setCenter(tableView);
+    layout.setBottom(label);
+
+    stage.setOnCloseRequest(event -&gt; { try { dbf.close(); } catch (Exception e) { } });
+
+    stage.show();
+  }
+
+  public class IntVal {
+    private int value;
+    public IntVal(int value) { this.value = value; }
+    public void set(int value) { this.value = value; }
+    public int get() { return value; }
+  }  // End of class IntVal
+
+  public class VirtObservableList extends ObservableListBase&lt;IntVal&gt; {
+    IntVal value = new IntVal(-1);
+
+    @Override
+    public int size() {
+      return dbf.getRecCount();
+    }
+
+    @Override
+    public IntVal get(int index) {
+      if (index &lt; 0 || index &gt;= size()) throw new IndexOutOfBoundsException();
+      if (index != value.get()) {
+        value = new IntVal(index);
+      }
+      return value;
+    }
+
+    void update(int index) {
+      beginChange();
+      nextUpdate(index);
+      endChange();
+      value.set(-1);
+    }
+
+    void insert(int index) {
+      beginChange();
+      nextAdd(index, index + 1);
+      endChange();
+      value.set(-1);
+    }
+
+  } // End of class VirtObservableList
+
+} // End of class DbfEdit
+</pre>
+</body></html>
