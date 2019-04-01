@@ -1,0 +1,182 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, Web, Interface, Download, Source, Free">
+<meta name="keywords" content="Java, Web, Interface, Download, Source, Free">
+<title>Web interface for java application</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Web interface for java application</p>
+<a href="WebInterface.jpg"><img src="WebInterface.jpg" width="150" height="150" alt="Web interface for java application" title="Web interface for java application"></a>
+<pre>
+-------------- WebInterface.java ---------------
+
+import java.io.*;
+import java.net.*;
+import java.util.*;
+import java.text.*;
+import java.nio.charset.*;
+import com.sun.net.httpserver.*;
+
+public class WebInterface {
+
+  String appRootPath;
+
+  public static void main(String args[]) { new WebInterface(args); }
+
+  WebInterface(String argv[]) {
+
+    final String hostname = &quot;&quot;;
+    final int port = 8000;
+
+    appRootPath = getClass().getProtectionDomain().getCodeSource().getLocation().getPath();
+    if (getClass().getResource(&quot;/&quot; + getClass().getName() + &quot;.class&quot;).toString().startsWith(&quot;jar:&quot;)) {
+      appRootPath = appRootPath.substring(0, appRootPath.lastIndexOf(&quot;/&quot;) + 1);
+    }
+    try {
+      HttpServer server = HttpServer.create(new InetSocketAddress(hostname, port), 0);
+      HttpContext context = server.createContext(&quot;/&quot;, new MyHandler());
+      //server.setExecutor(java.util.concurrent.Executors.newFixedThreadPool(5));
+      server.start();
+
+      System.out.println(&quot;http://&quot; + server.getAddress().getHostName() + &quot;:&quot; + server.getAddress().getPort());
+      System.out.println(&quot;^C to exit&quot;);
+    } catch (Exception e) { e.printStackTrace(); }
+  }
+
+  class MyHandler implements HttpHandler {
+    @Override
+    public void handle(HttpExchange exchange) throws IOException {
+      exchange.getResponseHeaders().set(&quot;Content-Type&quot;, &quot;text/html; charset=utf-8&quot;);
+      String query = exchange.getRequestURI().getRawQuery();
+      String s;
+      if (query == null || query.isEmpty()) {
+        s = htmlMain();
+      } else {
+        String url = urlDecode(query);
+        String path;
+        if (url.equals(&quot;.&quot;)) {
+          path = appRootPath;
+        } else {
+          path = url;
+        }
+        s = htmlFileList(path);
+      }
+      byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
+      exchange.sendResponseHeaders(200, bytes.length);
+      try (OutputStream os = exchange.getResponseBody()) {
+        os.write(bytes);
+      }
+    }
+  } // End class MyHandler
+
+  String htmlMain() {
+    StringBuilder sb = new StringBuilder();
+    sb.append(&quot;&lt;head&gt;\n&quot;)
+      .append(&quot;  &lt;meta http-equiv=\&quot;Content-Type\&quot; content=\&quot;text/html; charset=utf-8\&quot;&gt;\n&quot;)
+      .append(&quot;  &lt;script type=\&quot;text/javascript\&quot;&gt;\n&quot;)
+      .append(&quot;    function f1(p1) {\n&quot;)
+      .append(&quot;      xhttp = new XMLHttpRequest();\n&quot;)
+      .append(&quot;      xhttp.onreadystatechange = function() {\n&quot;)
+      .append(&quot;        if (xhttp.readyState == 4 &amp;&amp; xhttp.status == 200) document.getElementById(\&quot;div1\&quot;).innerHTML = xhttp.responseText;\n&quot;)
+      .append(&quot;      };\n&quot;)
+      .append(&quot;      xhttp.open(\&quot;GET\&quot;, \&quot;?\&quot; + p1, true);\n&quot;)
+      .append(&quot;      xhttp.send();\n&quot;)
+      .append(&quot;    }\n&quot;)
+      .append(&quot;    window.onload = f1(&apos;&quot;).append(urlEncode(&quot;.&quot;)).append(&quot;&apos;);\n&quot;)
+      .append(&quot;  &lt;/script&gt;\n&quot;)
+      .append(&quot;&lt;/head&gt;\n&quot;)
+      .append(&quot;&lt;body bgcolor=\&quot;#FEFEFE\&quot; style=\&quot;font-size: 14pt;\&quot;&gt;\n&quot;)
+      .append(&quot;  &lt;div id=\&quot;div1\&quot; style=\&quot;margin: 20px;\&quot;&gt;&lt;/div&gt;\n&quot;)
+      .append(&quot;&lt;/body&gt;\n&quot;);
+    return sb.toString();
+  }
+
+  String htmlFileList(String path) {
+    SimpleDateFormat dateFormat = new SimpleDateFormat();
+    NumberFormat numberFormat = NumberFormat.getIntegerInstance();
+    File file = new File(path);
+    while (!file.exists() || file.isFile()) {
+      file = file.getParentFile();
+      if (file == null) return &quot;&lt;p&gt;Wrong path&lt;/p&gt;&quot;;
+    }
+    StringBuilder sb = new StringBuilder();
+    sb.append(&quot;&lt;p style=\&quot;font-size: 20pt;\&quot;&gt;Index of &quot;+htmlEncode(file.getPath())+&quot;&lt;/p&gt;\n&quot;);
+    sb.append(&quot;&lt;table width=\&quot;70%\&quot;&gt;&lt;col width=\&quot;60%\&quot;&gt;&lt;col width=\&quot;25%\&quot;&gt;&lt;col width=\&quot;15%\&quot;&gt;\n&quot;);
+    sb.append(&quot;  &lt;tr&gt;\n&quot;);
+    sb.append(&quot;    &lt;th style=\&quot;border-bottom: thin solid black;\&quot;&gt;Name&lt;/td&gt;\n&quot;);
+    sb.append(&quot;    &lt;th style=\&quot;border-bottom: thin solid black;\&quot;&gt;Last modified&lt;/td&gt;\n&quot;);
+    sb.append(&quot;    &lt;th style=\&quot;border-bottom: thin solid black;\&quot;&gt;Size&lt;/td&gt;\n&quot;);
+    sb.append(&quot;  &lt;/tr&gt;\n&quot;);
+    File parent = file.getParentFile();
+    if (parent != null) {
+      sb.append(&quot; &lt;tr&gt;&lt;td&gt;&lt;a href=\&quot;javascript:f1(&apos;&quot;+urlEncode(parent.getPath())+&quot;&apos;);\&quot;&gt;..&lt;/a&gt;&lt;br&gt;&lt;/td&gt;&lt;td&gt;&lt;/td&gt;&lt;td&gt;&lt;/td&gt;\n&quot;);
+    }
+    File[] files = file.listFiles();
+    if (files != null &amp;&amp; files.length &gt; 0) {
+      Arrays.sort(files, (f1, f2) -&gt; {
+        return f1.isDirectory() == f2.isDirectory() ?
+               f1.getName().compareToIgnoreCase(f2.getName()) :
+               f1.isDirectory() ? -1 : 1;
+      });
+      for (File childFile : files) {
+        String fln = childFile.getName();
+        String s1, s2, s3;
+        if (childFile.isFile()) {
+          s1 = htmlEncode(fln);
+          s2 = htmlEncode(dateFormat.format(new Date(childFile.lastModified())));
+          s3 = htmlEncode(numberFormat.format(childFile.length()));
+        } else {
+          s1 = &quot;&lt;a href=\&quot;javascript:f1(&apos;&quot;+urlEncode(childFile.getPath())+&quot;&apos;);\&quot;&gt;&quot;+htmlEncode(fln)+&quot;/&lt;/a&gt;&quot;;
+          s2 = s3 = &quot;&quot;;
+        }
+        sb.append(&quot; &lt;tr&gt;\n&quot;);
+        sb.append(&quot;   &lt;td&gt;&quot;).append(s1).append(&quot;&lt;/td&gt;\n&quot;);
+        sb.append(&quot;   &lt;td&gt;&quot;).append(s2).append(&quot;&lt;/td&gt;\n&quot;);
+        sb.append(&quot;   &lt;td align=\&quot;right\&quot;&gt;&quot;).append(s3).append(&quot;&lt;/td&gt;\n&quot;);
+        sb.append(&quot; &lt;/tr&gt;\n&quot;);
+      }
+    }
+    sb.append(&quot;&lt;/table&gt;\n&quot;);
+    return sb.toString();
+  }
+
+  String htmlEncode(String text) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i &lt; text.length(); i++) {
+      char c = text.charAt(i);
+      switch(c) {
+        case &apos;&amp;&apos;: sb.append(&quot;&amp;amp;&quot;); break;
+        case &apos;&lt;&apos;: sb.append(&quot;&amp;lt;&quot;); break;
+        case &apos;&gt;&apos;: sb.append(&quot;&amp;gt;&quot;); break;
+        case &apos;\&quot;&apos;: sb.append(&quot;&amp;quot;&quot;); break;
+        case &apos;\&apos;&apos;: sb.append(&quot;&amp;apos;&quot;); break;
+        default:
+          if(c &gt; 126) sb.append(&quot;&amp;#&quot;).append((int)c).append(&apos;;&apos;);
+          else sb.append(c);
+      }
+    }
+    return sb.toString();
+  }
+
+  String urlEncode(String url) {
+    try {
+      return new String(Base64.getUrlEncoder().encode(url.getBytes(StandardCharsets.UTF_8)));
+    } catch (Exception e) { return &quot;&quot;; }
+  }
+
+  String urlDecode(String txt) {
+    try {
+      return new String(Base64.getUrlDecoder().decode(txt), StandardCharsets.UTF_8);
+    } catch (Exception e) { return &quot;&quot;; }
+  }
+}
+
+</pre>
+<p><b><a href="WebInterface.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
