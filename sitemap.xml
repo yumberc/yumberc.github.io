@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset
+    xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+    xmlns:xhtml="http://www.w3.org/1999/xhtml"
+    xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+<!-- created with Free Online Sitemap Generator http://www.angeldigital.marketing/image-sitemap/ -->
+    <url>
+        <loc>https://yumberc.github.io</loc>
+        <xhtml:link rel="alternate" hreflang="en" href="https://yumberc.github.io"/>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/FontStore/FontStore.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/FontStore/FontStore.jpg</image:loc>
+            <image:caption>FontStore in Java</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/ImageViewer/ImageViewer.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/ImageViewer/ImageViewer.jpg</image:loc>
+            <image:caption>Image Viewer in Java</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/Nixie/Nixie.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/Nixie/Nixie.jpg</image:loc>
+            <image:caption>Java nixie clock</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/Gradient/Gradient.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/Gradient/Gradient.jpg</image:loc>
+            <image:caption>Java color gradient generator</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/Binding/Binding.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/Binding/Binding.jpg</image:loc>
+            <image:caption>Binding Properties</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/Edit/Edit.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/Edit/Edit.jpg</image:loc>
+            <image:caption>Scheme editor in java</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/Resize/Resize.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/Resize/Resize.jpg</image:loc>
+            <image:caption>Java resize and move object</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/ChangeCSS/ChangeStyleSheet.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/ChangeCSS/ChangeStyleSheet.jpg</image:loc>
+            <image:caption>Change Cascading Style Sheets (css)</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/ModbusTCP/ModbusTCP.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/ModbusTCP/ModbusTCP.jpg</image:loc>
+            <image:caption>Modbus TCP PLC Simulator</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/DbfEdit/DbfEdit.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/DbfEdit/DbfEdit.jpg</image:loc>
+            <image:caption>DBF editor in java</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/HexView/HexView.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/HexView/HexView.jpg</image:loc>
+            <image:caption>Hex Viewer in java</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/VObsList/VObservableList.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/VObsList/VObservableList.jpg</image:loc>
+            <image:caption>Virtualization ObservableList</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/AnsiConsole/AnsiConsole.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/AnsiConsole/AnsiConsole.jpg</image:loc>
+            <image:caption>Java ANSI console</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/SPreview/SPreview.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/SPreview/SPreview.jpg</image:loc>
+            <image:caption>Generating print preview from Java Swing</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/FileBrowser/FileBrowser.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/FileBrowser/FileBrowser.jpg</image:loc>
+            <image:caption>Dynamically populating a TreeTableView</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/Asn1Viewer/Asn1Viewer.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/Asn1Viewer/Asn1Viewer.jpg</image:loc>
+            <image:caption>Asn1 Viewer in java</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/WebInterface/WebInterface.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/WebInterface/WebInterface.jpg</image:loc>
+            <image:caption>Web interface for java application</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/X509Cert/X509Cert.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/X509Cert/X509Cert.jpg</image:loc>
+            <image:caption>X509 Certificate generator in java</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/MKeyStore/MKeyStore.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/MKeyStore/MKeyStore.jpg</image:loc>
+            <image:caption>Java keystore manager</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/Regex/Regex.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/Regex/Regex.jpg</image:loc>
+            <image:caption>Java Regular Expression Tester</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/XMLView/XMLView.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/XMLView/XMLView.jpg</image:loc>
+            <image:caption>XML Viewer in java</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/RunScript/RunScript.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/RunScript/RunScript.jpg</image:loc>
+            <image:caption>Call external javascript functions from java</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/Redirect/Redirect.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/Redirect/Redirect.jpg</image:loc>
+            <image:caption>Redirect standard output in Java</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/RenewableStream/RenewableStream.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/RenewableStream/RenewableStream.jpg</image:loc>
+            <image:caption>Coded data transfer in java</image:caption>
+        </image:image>
+    </url>
+    <url>
+        <loc>https://yumberc.github.io/ShowTables/ShowTables.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/ShowTables/ShowTables.jpg</image:loc>
+            <image:caption>Show tables in database</image:caption>
+        </image:image>
+    </url>
+</urlset>
