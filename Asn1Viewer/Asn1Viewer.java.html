@@ -1,0 +1,303 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, Asn1, Viewer, Download, Source, Free">
+<meta name="keywords" content="Java, Asn1, Viewer, Certificate, Download, Source, Free">
+<title>Asn1Viewer.java</title>
+</head>
+<body bgcolor="#FFFFFF">
+<pre>
+
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import java.math.*;
+
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.control.*;
+import javafx.scene.paint.*;
+import javafx.scene.text.*;
+import javafx.scene.layout.*;
+import javafx.scene.input.*;
+import javafx.scene.*;
+import javafx.util.*;
+import javafx.beans.property.*;
+import javafx.event.*;
+import javafx.geometry.*;
+import javafx.collections.*;
+
+public class Asn1Viewer extends Application {
+
+  TextArea hexArea, valueArea;
+  TreeTableView&lt;Pair&lt;Asn1Object, Integer&gt;&gt; treeTableView;
+  GridPane gridPane;
+
+  @Override
+  public void start(Stage stage) {
+    BorderPane layout = new BorderPane();
+    stage.setScene(new Scene(layout, 800, 500));
+    BorderPane cont = new BorderPane();
+    hexArea = new TextArea();
+    valueArea = new TextArea();
+    valueArea.setEditable(false);
+    valueArea.setWrapText(true);
+    valueArea.addEventFilter(KeyEvent.KEY_PRESSED, keyEvent -&gt; {
+      if (keyEvent.getCode() == KeyCode.TAB &amp;&amp; !keyEvent.isControlDown()) {
+        KeyEvent newEvent = new KeyEvent(keyEvent.getEventType(), keyEvent.getCharacter(),
+          keyEvent.getText(), keyEvent.getCode(), keyEvent.isShiftDown(),
+          !keyEvent.isControlDown(), keyEvent.isAltDown(), keyEvent.isMetaDown());
+        Event.fireEvent(keyEvent.getTarget(), newEvent);
+        keyEvent.consume();
+      } 
+    });
+    treeTableView = createTreeTableView();
+    gridPane = new GridPane();
+    ScrollPane sp = new ScrollPane();
+    sp.setVbarPolicy(ScrollPane.ScrollBarPolicy.ALWAYS);
+    sp.setContent(gridPane);
+    sp.setFocusTraversable(true);
+    SplitPane splitPane = new SplitPane(treeTableView, valueArea);
+    SplitPane.setResizableWithParent(valueArea, false);
+    splitPane.setOrientation(Orientation.VERTICAL);
+    splitPane.setDividerPositions(1d);
+    cont.setCenter(splitPane);
+    cont.setRight(sp);
+    layout.setCenter(cont);
+    Button button = new Button(&quot;Load&quot;);
+    button.setOnAction(event -&gt; { load(stage); treeTableView.requestFocus(); });
+    HBox hb = new HBox();
+    hb.getChildren().addAll(button);
+    layout.setBottom(hb);
+    BorderPane.setMargin(hb, new Insets(2));
+    setContent(createDemoAsn1Obj());
+    stage.show();
+  }
+
+  void setContent(Asn1Object root) {
+    TreeItem&lt;Pair&lt;Asn1Object, Integer&gt;&gt; tiRoot = createTreeItem(root);
+    treeTableView.setRoot(tiRoot);
+    treeTableView.getSelectionModel().selectFirst();
+  }
+
+  void load(Stage stage) {
+    Stage newStage = new Stage();
+    newStage.initOwner(stage);
+    newStage.initModality(Modality.APPLICATION_MODAL);
+    BorderPane layout = new BorderPane();
+    newStage.setScene(new Scene(layout, 700, 300));
+    newStage.addEventFilter(KeyEvent.KEY_PRESSED, keyEvent -&gt; {
+      if (keyEvent.getCode() == KeyCode.ESCAPE) newStage.close();
+    });
+    hexArea.setFont(Font.font(&quot;Monospaced&quot;));
+    layout.setCenter(hexArea);
+    Button button1 = new Button(&quot;File&quot;);
+    button1.setOnAction((event) -&gt; { fromFile(newStage); newStage.requestFocus(); hexArea.requestFocus(); });
+    Button button2 = new Button(&quot;Clear&quot;);
+    button2.setOnAction((event) -&gt; { hexArea.clear(); hexArea.requestFocus(); });
+    Button button3 = new Button(&quot;Paste&quot;);
+    button3.setOnAction((event) -&gt; { hexArea.paste(); hexArea.requestFocus(); });
+    Button button4 = new Button(&quot;Ok&quot;);
+    button4.setOnAction((event) -&gt; { if (loadDump(newStage)) newStage.close(); hexArea.requestFocus(); });
+    HBox hb = new HBox(4);
+    hb.getChildren().addAll(button1, button2, button3, button4);
+    layout.setBottom(hb);
+    BorderPane.setMargin(hb, new Insets(2));
+    newStage.show();
+  }
+
+  void fromFile(Stage stage) {
+    FileChooser fileChooser = new FileChooser();
+    File file = fileChooser.showOpenDialog(stage);
+    if (file != null) {
+      try (RandomAccessFile fl = new RandomAccessFile(file, &quot;r&quot;)) {
+        StringBuilder sb = new StringBuilder();
+        boolean bin = false;
+        int b = -1;
+        while ((b = fl.read()) != -1) {
+          if ((b &lt; 32 || b &gt; 127) &amp;&amp; b != 9 &amp;&amp; b != 10 &amp;&amp; b != 13) { bin = true; break; }
+          sb.append((char)b);
+        }
+        if (bin) {
+          sb.setLength(0);
+          fl.seek(0);
+          for (int i = 0; (b = fl.read()) != -1; i++) {
+            sb.append(String.format(&quot;%02X&quot;, b));
+            sb.append(i % 16 == 15 ? &quot;\n&quot; : i % 16 == 7 ? &quot;  &quot; : &quot; &quot;);
+          }
+        }
+        hexArea.setText(sb.toString());
+      } catch (Exception e) { alertError(stage, e.toString()); }
+    }
+  }
+
+  void alertError(Window window, String s) {
+    Alert alert = new Alert(Alert.AlertType.ERROR, s, ButtonType.OK);
+    alert.initOwner(window);
+    alert.setHeaderText(null);
+    alert.showAndWait();
+  }
+
+  boolean loadDump(Stage stage) {
+    Exception e1 = null;
+    try {
+      byte[] source = {};
+      String s = hexArea.getText().replaceAll(&quot;-----BEGIN [^-]+-----\\s+|-----END [^-]+-----|begin-base64[^\\n]+\\s+|====&quot;, &quot;&quot;);
+      if (hexArea.getText().length() == s.length()) {
+        try {
+          s = hexArea.getText().replaceAll(&quot;\\s&quot;, &quot;&quot;);
+          source = new byte[s.length() / 2];
+          for (int i = 0; i &lt; source.length; i++) {
+            int index = i * 2;
+            int v = Integer.parseInt(s.substring(index, index + 2), 16);
+            source[i] = (byte)v;
+          }
+          try {
+            Asn1Object o = new Asn1Object(source);
+            setContent(o);
+            return true;
+          } catch (Exception e) { e1 = e; }
+        } catch (Exception e) {}
+      }
+      source = Base64.getMimeDecoder().decode(s);
+      Asn1Object o = new Asn1Object(source);
+      setContent(o);
+    } catch (Exception e) {
+      alertError(stage, (e1 != null ? e1 : e).toString());
+      return false;
+    }
+    return true;
+  }
+
+  TreeTableView&lt;Pair&lt;Asn1Object, Integer&gt;&gt; createTreeTableView() {
+    TreeTableView&lt;Pair&lt;Asn1Object, Integer&gt;&gt; treeTableView = new TreeTableView&lt;&gt;();
+    TreeTableColumn&lt;Pair&lt;Asn1Object, Integer&gt;, Pair&lt;Asn1Object, Integer&gt;&gt; column = new TreeTableColumn&lt;&gt;();
+    column.setCellValueFactory(
+      (TreeTableColumn.CellDataFeatures&lt;Pair&lt;Asn1Object, Integer&gt;, Pair&lt;Asn1Object, Integer&gt;&gt; cellData) -&gt; 
+      new ReadOnlyObjectWrapper&lt;Pair&lt;Asn1Object, Integer&gt;&gt;(cellData.getValue().getValue())
+    );
+    column.setCellFactory(c -&gt; {
+      TreeTableCell&lt;Pair&lt;Asn1Object, Integer&gt;, Pair&lt;Asn1Object, Integer&gt;&gt; cell = new TreeTableCell&lt;Pair&lt;Asn1Object, Integer&gt;, Pair&lt;Asn1Object, Integer&gt;&gt;() {
+        @Override
+        protected void updateItem(Pair&lt;Asn1Object, Integer&gt; item, boolean empty) {
+          super.updateItem(item, empty);
+          if (empty || item == null || item.getValue() == null || item.getKey() == null) {
+            setGraphic(null);
+          } else {
+            Text text1 = new Text(item.getKey().toString() +&quot; Offset: &quot;+item.getValue().intValue());
+            Text text2 = new Text(&quot;  &quot; + item.getKey().valueAsString());
+            text2.setFill(Color.BLUE);
+            setGraphic(new Group(new TextFlow(text1, text2)));
+          }
+        }
+      };
+      return cell;
+    });
+    treeTableView.getColumns().add(column);
+    treeTableView.setColumnResizePolicy(TreeTableView.CONSTRAINED_RESIZE_POLICY);
+    treeTableView.widthProperty().addListener((ov, t, t1) -&gt; {
+      Pane header = (Pane)treeTableView.lookup(&quot;TableHeaderRow&quot;);
+      if (header != null &amp;&amp; header.isVisible()) {
+        header.setMaxHeight(0); header.setMinHeight(0); header.setPrefHeight(0);
+        header.setVisible(false); header.setManaged(false);
+      }
+    });
+    treeTableView.getFocusModel().focusedItemProperty().addListener((observable, oldValue, newValue) -&gt; {
+      if (gridPane == null || gridPane.getChildren().isEmpty()) return;
+      if (oldValue != null) showTag(oldValue.getValue(), false);
+      if (newValue != null) showTag(newValue.getValue(), true);
+      if (newValue != null &amp;&amp; newValue.getValue() != null &amp;&amp; newValue.getValue().getKey() != null) {
+        String s = newValue.getValue().getKey().valueAsString(Asn1Object.STVALUE);
+        valueArea.setText(s);
+      } else valueArea.clear();
+    });
+    return treeTableView;
+  }
+
+  void showTag(Pair&lt;Asn1Object, Integer&gt; value, boolean sel) {
+    if (value != null &amp;&amp; value.getValue() != null &amp;&amp; value.getKey() != null) {
+      Asn1Object o = value.getKey();
+      int offset = value.getValue().intValue();
+      Background bg1 = new Background(new BackgroundFill(Color.web(&quot;C0C0C0&quot;), CornerRadii.EMPTY, Insets.EMPTY));
+      Background bg2 = new Background(new BackgroundFill(Color.web(&quot;DCDCDC&quot;), CornerRadii.EMPTY, Insets.EMPTY));
+      ObservableList&lt;Node&gt; ol = gridPane.getChildren();
+      for(int i = 0, hl = o.headLength(); i &lt; hl + o.getLength() &amp;&amp; offset + i &lt; ol.size(); i++) {
+        ((StackPane)ol.get(offset + i)).setBackground(sel ? i &lt; hl ? bg1 : bg2 : Background.EMPTY);
+      }
+    }
+  }
+
+  Font font;
+  int offset, n;
+  TreeItem&lt;Pair&lt;Asn1Object, Integer&gt;&gt; createTreeItem(Asn1Object root) {
+    if (root == null) return null;
+    gridPane.getChildren().clear();
+    font = Font.font(&quot;Monospaced&quot;);
+    offset = n = 0;
+    try { 
+      return walkTree(root);
+    } catch (Exception e) { return null; }
+  }
+
+  TreeItem&lt;Pair&lt;Asn1Object, Integer&gt;&gt; walkTree(Asn1Object o) throws IOException {
+    Iterator&lt;Asn1Object&gt; iter = o.getSubElementsIterator();
+    TreeItem&lt;Pair&lt;Asn1Object, Integer&gt;&gt; ti = new TreeItem&lt;&gt;();
+    ti.setValue(new Pair&lt;Asn1Object, Integer&gt;(o, Integer.valueOf(offset)));
+    offset += o.effHeadLength();
+    ti.setExpanded(true);
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    o.writeObj(out);
+    byte[] bytes = out.toByteArray();
+    for (int hl = o.headLength(), i = 0; i &lt; bytes.length; i++, n++) {
+      String s = String.format(&quot;%02X&quot;, bytes[i]);
+      Text text = new Text(s + (n % 16 == 15 ? &quot;&quot; : n % 16 == 7 ? &quot;  &quot; : &quot; &quot;));
+      text.setFont(font);
+      text.setFill(i &lt; hl ? Color.BLACK : Color.BLUE);
+      gridPane.add(new StackPane(text), n % 16, n / 16);
+      text.setOnMousePressed(event -&gt; { goToItem(ti); event.consume(); });
+    }
+    while (iter.hasNext()) ti.getChildren().add(walkTree(iter.next()));
+    return ti;
+  }
+
+  void goToItem(TreeItem&lt;Pair&lt;Asn1Object, Integer&gt;&gt; ti) {
+    if (ti != null) {
+      treeTableView.getSelectionModel().select(ti);
+      treeTableView.requestFocus();
+    }
+  }
+
+  Asn1Object createDemoAsn1Obj() {
+    Asn1Object o1 =
+      new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SEQUENCE).addAll(
+        new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.BOOLEAN, Boolean.valueOf(true)),
+        new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.UTC_TIME, new Date())
+      );
+    Asn1Object o2 =
+      new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SEQUENCE).addAll(
+        new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SET).addAll(
+          new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SEQUENCE).addAll(
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.OBJECT_IDENTIFIER, &quot;2.12345.12345.12345&quot;),
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.UTF8_STRING, &quot;qwertyu&quot;),
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.OCTET_STRING, &quot;octet&quot;.getBytes()),
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.BIT_STRING, new Object[] { Integer.valueOf(4), &quot;bit&quot;.getBytes() }),
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.OCTET_STRING, o1.getBytes()),
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.BIT_STRING, new Object[] { Integer.valueOf(0), o1.getBytes() })
+          ),
+          new Asn1Object(Asn1Object.CONSTRUCTED, Asn1Object.SEQUENCE).setIndefinite(true).addAll(
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.INTEGER, new BigInteger(&quot;12345678901234567890&quot;)),
+            new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.INTEGER, Integer.valueOf(-1234567890)),
+            new Asn1Object(Asn1Object.EOC, Asn1Object.EOC)
+          ),
+          new Asn1Object(Asn1Object.CONTEXT, 0xABCD, &quot;abcd&quot;.getBytes())
+        ),
+        new Asn1Object(Asn1Object.UNIVERSAL, Asn1Object.NULL)
+      );
+      //try (OutputStream os = Base64.getMimeEncoder().wrap(new FileOutputStream(&quot;demo.base64&quot;))) {
+      //  o2.write(os);
+      //} catch (Exception ex) { }
+    return o2;
+  }
+
+} // End of class Asn1Viewer
+</pre>
+</body></html>

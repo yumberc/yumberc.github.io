@@ -1,0 +1,549 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, Asn1, Viewer, Download, Source, Free">
+<meta name="keywords" content="Java, Asn1, Viewer, Download, Source, Free">
+<title>Asn1Object.java</title>
+</head>
+<body bgcolor="#FFFFFF">
+<pre>
+
+import java.io.*;
+import java.util.*;
+import java.text.*;
+import java.nio.charset.StandardCharsets;
+import java.math.BigInteger;
+import java.util.function.Consumer;
+
+public class Asn1Object implements Iterable&lt;Asn1Object&gt; {
+
+  public final static int UNIVERSAL =         0x00; // 0000 0000
+  public final static int APPLICATION =       0x40; // 0100 0000
+  public final static int CONTEXT =           0x80; // 1000 0000
+  public final static int PRIVATE =           0xC0; // 1100 0000
+
+  public final static int CONSTRUCTED =       0x20; // 0010 0000
+
+  public final static int EOC =               0x00;
+  public final static int BOOLEAN =           0x01;
+  public final static int INTEGER =           0x02;
+  public final static int BIT_STRING =        0x03;
+  public final static int OCTET_STRING =      0x04;
+  public final static int NULL =              0x05;
+  public final static int OBJECT_IDENTIFIER = 0x06;
+  public final static int OBJECT_DESCRIPTOR = 0x07;
+  public final static int EXTERNAL =          0x08;
+  public final static int REAL =              0x09;
+  public final static int ENUMERATED =        0x0A;
+  public final static int EMBEDDED_PDV =      0x0B;
+  public final static int UTF8_STRING =       0x0C;
+  public final static int SEQUENCE =          0x10;
+  public final static int SET =               0x11;
+  public final static int NUMERIC_STRING =    0x12;
+  public final static int PRINTABLE_STRING =  0x13;
+  public final static int T61_STRING =        0x14;
+  public final static int VIDEOTEX_STRING =   0x15;
+  public final static int IA5_STRING =        0x16;
+  public final static int UTC_TIME =          0x17;
+  public final static int GENERALIZED_TIME =  0x18;
+  public final static int GRAPHIC_STRING =    0x19;
+  public final static int VISIBLE_STRING =    0x1A;
+  public final static int GENERAL_STRING =    0x1B;
+  public final static int UNIVERSAL_STRING =  0x1C;
+  public final static int CHARACTER_STRING =  0x1D;
+  public final static int BMP_STRING =        0x1E; // 0001 1110
+
+  private boolean indefinite = false, encapsulated = false;
+  private int flags, tag, length = 0;
+  private byte[] bytes = null;
+  private List&lt;Asn1Object&gt; subElements = null;
+  private Asn1Object parent = null;
+
+  public Asn1Object(InputStream in) {
+    try { 
+      read(in);
+    } catch (Exception e) { throw new RuntimeException(e); }
+  }
+
+  public Asn1Object(byte[] bytes) {
+    this(new ByteArrayInputStream(bytes));
+    if (headLength() + length != bytes.length) throw new IllegalArgumentException(&quot;fragment found&quot;);
+  }
+
+  public Asn1Object(int flags, int tag) {
+    if ((flags &amp; 0xE0) != flags) throw new IllegalArgumentException(&quot;flags&quot;); // 1110 0000
+    this.flags = flags;
+    this.tag = tag;
+  }
+
+  public Asn1Object(int flags, int tag, Object obj) {
+    this(flags, tag, toBytes(tag, obj));
+  }
+
+  public Asn1Object(int flags, int tag, byte[] bytes) {
+    this(flags, tag);
+    this.bytes = (isConstructed() ? null : bytes);
+    this.length = (isConstructed() || bytes == null ? 0 : bytes.length);
+    checkEncapsulated();
+  }
+
+  public Asn1Object() {
+    this(UNIVERSAL, EOC);
+  }
+
+  public boolean isConstructed() { return (flags &amp; CONSTRUCTED) != 0; }
+  public boolean isEncapsulated() { return encapsulated; }
+  public boolean isIndefinite() { return indefinite; }
+  public Asn1Object setIndefinite(boolean indefinite) {
+    this.indefinite = isConstructed() &amp;&amp; indefinite;
+    return this;
+  }
+
+  public int getFlags() { return flags; }
+  public int getTag() { return tag; }
+  public int getLength() { return length; }
+  public byte[] getValue() { return bytes; }
+  public Asn1Object getParent() { return parent; }
+  public int headLength() { return tagLength() + lengthLength(); }
+  public int tagLength() { return tag &lt; 31 ? 1 : getNum(tag, 7) + 1; }
+  public int lengthLength() { return length &lt; 128 || indefinite ? 1 : getNum(length, 8) + 1; }
+  public Asn1Object getSubElement(int i) { return subElements.get(i); }
+  public int getSubElementsCount() { return subElements == null ? 0 : subElements.size(); }
+  public Iterator&lt;Asn1Object&gt; getSubElementsIterator() {
+    return subElements == null ? Collections.&lt;Asn1Object&gt;emptyIterator() : subElements.iterator();
+  }
+
+  public Asn1Object addAll(Asn1Object... elements) {
+    for (Asn1Object o : elements) add(o);
+    return this;
+  }
+
+  public void add(Asn1Object o) {
+    if (o == null) return;
+    if (!isConstructed() &amp;&amp; !isEncapsulated()) throw new RuntimeException(&quot;addition in non constructed or encapsulated&quot;);
+    //if (!isIndefinite() &amp;&amp; o.getFlags() == 0 &amp;&amp; o.getTag() == EOC) throw new RuntimeException(&quot;addition EOC in non indefinite&quot;);
+    if (subElements == null) subElements = new ArrayList&lt;&gt;();
+    subElements.add(o);
+    o.parent = this;
+    if (!isEncapsulated()) {
+      int l = o.headLength() + o.getLength();
+      length += l;
+      Asn1Object parent = getParent();
+      while (parent != null &amp;&amp; !parent.isEncapsulated()) {
+        parent.length += l;
+        parent = parent.getParent();
+      }
+    }
+  }
+
+  private static int getNum(long value, int bits) {
+    int size = 1;
+    while ((value &gt;&gt;&gt;= bits) != 0) size++;
+    return size;
+  }
+
+  private void readTag(InputStream in) throws IOException {
+    int data = in.read();
+    if (data == -1) throw new EOFException(&quot;EOF found&quot;);
+    flags = data &amp; 0xE0;  // 1110 0000
+    tag = data &amp; 0x1F;    // 0001 1111
+    if (tag == 0x1F) {
+      tag = 0;
+      int b = in.read();
+      if (b == -1) throw new EOFException(&quot;EOF found&quot;);
+      if ((b &amp; 0x7f) == 0) throw new IOException(&quot;invalid tag number&quot;);
+      while ((b &amp; 0x80) != 0) {
+        tag |= (b &amp; 0x7f);  // 0111 1111
+        tag &lt;&lt;= 7;
+        b = in.read();
+        if (b == -1) throw new EOFException(&quot;EOF found&quot;);
+      }
+      tag |= (b &amp; 0x7f);
+    }
+  }
+
+  private void writeTag(OutputStream out) throws IOException {
+    if (tag &lt; 31) { // 0x1f  0001 1111
+      out.write((byte)(flags | tag));
+    } else {
+      out.write((byte)(flags | 0x1f));
+      if (tag &lt; 128) {  // 0x80  1000 0000
+        out.write((byte)tag);
+      } else {
+        int num = getNum(tag, 7);
+        for (int i = (num - 1) * 7; i &gt;= 0; i -= 7) {
+          out.write((byte)(i &gt; 0 ? (tag &gt;&gt;&gt; i) | 0x80 : (tag &gt;&gt;&gt; i) &amp; 0x7F));
+        }
+      }
+    }
+  }
+
+  private void readLength(InputStream in) throws IOException {
+    length = in.read();
+    if (length == -1) throw new EOFException(&quot;EOF found&quot;);
+    if (length == 128) { // 0x80  1000 0000 indefinite length encoding
+      if (!isConstructed()) throw new IOException(&quot;tag can&apos;t be indefinite&quot;);
+      length = 0;
+      indefinite = true;
+    } else if (length &gt; 127) {  //0x7F 0111 1111
+      int num = length &amp; 0x7F;
+      if (num &gt; 4) throw new IOException(&quot;length more than 4 bytes&quot;);
+      length = 0;
+      for (int i = 0; i &lt; num; i++) {
+        int b = in.read();
+        if (b == -1) throw new EOFException(&quot;EOF found&quot;);
+        if (i == 0 &amp;&amp; b == 0) throw new IOException(&quot;invalid tag length&quot;);
+        length = (length &lt;&lt; 8) | (b &amp; 0xFF);
+      }
+    }
+  }
+
+  private void writeLength(OutputStream out) throws IOException {
+    if (isConstructed() &amp;&amp; indefinite) {
+      out.write((byte)0x80);  // 1000 0000
+    } else {
+      if (length &gt; 127) {  // 0x7F  0111 1111
+        int num = getNum(length, 8);
+        out.write((byte)(num | 0x80));  // 1000 0000
+        for (int i = (num - 1) * 8; i &gt;= 0; i -= 8) {
+          out.write((byte)(length &gt;&gt;&gt; i));
+        }
+      } else {
+        out.write((byte)length);
+      }
+    }
+  }
+ 
+  public int effHeadLength() {
+    int len = headLength();
+    if (!isConstructed()) {
+      if (isEncapsulated()) len += prefEncapsulated().length;
+      else len += getLength();
+    }
+    return len;
+  }
+
+  public Iterator&lt;Asn1Object&gt; iterator() {
+    return new Asn1Iterator(this);
+  }
+
+  public void read(InputStream in) throws IOException {
+    readTag(in);
+    readLength(in);
+    if (isConstructed() &amp;&amp; (length &gt; 0 || indefinite)) {
+      int l = length;
+      length = 0;
+      for (;;) {
+        Asn1Object so = new Asn1Object(in);
+        add(so);
+        if (!indefinite) {
+          if (length == l) break;
+          if (length &gt; l) throw new IOException(&quot;invalid summary length&quot;);
+        } else if (so.getFlags() == 0 &amp;&amp; so.getTag() == EOC &amp;&amp; so.length == 0) break;
+      }
+    } else if (length &gt; 0) {
+      bytes = new byte[length];
+      int n = in.read(bytes);
+      if (n != length) throw new EOFException(&quot;length &quot; + length + &quot; found &quot; + n);
+      checkEncapsulated();
+    }
+  }
+
+  public boolean allowEncapsulated() { return (flags &amp; 0xC0) == UNIVERSAL &amp;&amp; (tag == BIT_STRING || tag == OCTET_STRING); }
+
+  private void checkEncapsulated() {
+    encapsulated = false;
+    if(!isConstructed() &amp;&amp; subElements != null) subElements.clear();
+    if (!allowEncapsulated() || bytes == null || bytes.length &lt; 2) return;
+    byte[] bt;
+    if (tag == BIT_STRING) {
+      if (bytes[0] != 0) return;
+      bt = new byte[bytes.length - prefEncapsulated().length];
+      System.arraycopy(bytes, 1, bt, 0, bt.length);
+    } else bt = bytes;
+    try {
+      Asn1Object e = new Asn1Object(bt);
+      if (!(e.isConstructed() || e.allowEncapsulated()) || e.isIndefinite()) return;
+      encapsulated = true;
+      add(e);
+    } catch (Exception e) {}
+  }
+
+  public byte[] prefEncapsulated() {
+    if (allowEncapsulated() &amp;&amp; tag == BIT_STRING) return new byte[] { 0 };
+    return new byte[0];
+  }
+
+  public void write(OutputStream out) throws IOException {
+    for (Asn1Object o : this) o.writeObj(out);
+  }
+
+  public void writeObj(OutputStream out) throws IOException {
+    if (isIndefinite() &amp;&amp; isConstructed() &amp;&amp;
+       (getSubElementsCount() == 0 || 
+       (getSubElementsCount() &gt; 0 &amp;&amp; getSubElement(getSubElementsCount() - 1).getTag() != EOC)))
+         throw new IOException(&quot;EOC missing&quot;);
+    writeTag(out);
+    writeLength(out);
+    if (!isConstructed()) {
+      if (isEncapsulated()) out.write(prefEncapsulated());
+      else if (bytes != null) {
+        if (bytes.length != length) throw new IOException(&quot;byte array length incorrect&quot;);
+        out.write(bytes);
+      }
+    }
+  }
+
+  public byte[] getBytes() {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    try { 
+      write(out);
+    } catch (Exception e) { throw new RuntimeException(e); }
+    byte[] bytes = out.toByteArray();
+    return bytes;
+  }
+
+  @Override
+  public Asn1Object clone() {
+    return new Asn1Object(getBytes());
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    return (obj instanceof Asn1Object &amp;&amp; Arrays.equals(getBytes(), ((Asn1Object)obj).getBytes()));
+  }
+
+  @Override
+  public int hashCode() {
+    return Arrays.hashCode(getBytes());
+  }
+
+  public final static int STDEFAULT = 0;
+  public final static int STPREFIX =  1;
+  public final static int STVALUE =   2;
+
+  public String valueAsString() { return valueAsString(STDEFAULT); }
+
+  public String valueAsString(int t) {
+    String pref = &quot;&quot;, ret = &quot;&quot;;
+    Object obj = valueAsObject();
+    if (obj != null) {
+      if (t != STVALUE) {
+        if (tag == BIT_STRING &amp;&amp; !isEncapsulated() &amp;&amp; obj instanceof String) pref = &quot;(&quot;+((String)obj).length()+&quot; bit)&quot;;
+        //else if (tag == OCTET_STRING &amp;&amp; !isEncapsulated() &amp;&amp; obj instanceof String) pref = &quot;(&quot;+((String)obj).length() / 2+&quot; byte)&quot;;
+      }
+      if (t != STPREFIX) {
+        if (obj instanceof Date) ret = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM).format(obj);
+        else ret = obj.toString();
+      }
+    }
+    return pref + (pref.length() &gt; 0 &amp;&amp; ret.length() &gt; 0 ? &quot; &quot; : &quot;&quot;) + ret;
+  }
+
+  public Object valueAsObject() {
+    if (isConstructed() || isEncapsulated() || bytes == null) return null;
+    try {
+      if ((flags &amp; 0xC0) == UNIVERSAL) {
+        if (tag == UTF8_STRING) return new String(bytes, StandardCharsets.UTF_8);
+        if (tag == NUMERIC_STRING || tag == PRINTABLE_STRING || tag == T61_STRING ||
+            tag == VIDEOTEX_STRING || tag == IA5_STRING || tag == VISIBLE_STRING)
+              return new String(bytes, StandardCharsets.ISO_8859_1);
+        if (tag == BMP_STRING) return new String(bytes, StandardCharsets.UTF_16BE);
+        if (tag == BOOLEAN) return Boolean.valueOf(bytes[0] != 0);
+        if ((tag == UTC_TIME || tag == GENERALIZED_TIME) &amp;&amp; bytes[bytes.length - 1] == &apos;Z&apos;) {
+          String f = (tag == GENERALIZED_TIME ? &quot;yy&quot; : &quot;&quot;) + &quot;yyMMddHHmmss&quot;;
+          String s = new String(bytes, StandardCharsets.UTF_8);
+          return new SimpleDateFormat(f).parse(s);
+        }
+        if (tag == INTEGER) return new BigInteger(bytes);
+        if (tag == BIT_STRING &amp;&amp; bytes.length &gt; 0) {
+          int l = (int)bytes[0] &amp; 0xff;
+          StringBuilder sb = new StringBuilder();
+          for (int i = 8; i &lt; bytes.length * 8 - l; i++) {
+            sb.append(((bytes[i / 8] &lt;&lt; (i % 8)) &amp; 0x80) &gt; 0 ? &quot;1&quot; : &quot;0&quot;);
+          }
+          return sb.toString();
+        }
+        if (tag == OBJECT_IDENTIFIER) {
+          int count = 0;
+          for (byte b : bytes) if ((b &amp; 0x80) == 0) count++;
+          long[] data = new long[count+1];
+          for (int d = 1, i = 0; i &lt; bytes.length; i++) {
+            data[d] = (data[d] &lt;&lt; 7) | (bytes[i] &amp; 0x7f);
+            if ((bytes[i] &amp; 0x80) == 0) d++;
+          }
+          data[0] = data[1] &lt; 80 ? data[1] &lt; 40 ? 0 : 1 : 2;
+          data[1] = data[1] - data[0] * 40;
+          StringBuilder sb = new StringBuilder();
+          for (int i = 0; i &lt; data.length; i++) {
+            if (data[i] &lt; 0) throw new IllegalArgumentException();
+            if (i &gt; 0) sb.append(&quot;.&quot;);
+            sb.append(Long.toString(data[i]));
+          }
+          return sb.toString();
+        }
+      }
+      StringBuilder sb = new StringBuilder();
+      for (byte b : bytes) sb.append(String.format(&quot;%02X&quot;, b));
+      return sb.toString();
+    } catch (Exception e) {}
+    return null;
+  }
+
+  public static byte[] toBytes(int tag, Object obj) {
+    if (obj instanceof String) {
+      String string = (String)obj;
+      if (tag == UTF8_STRING) return string.getBytes(StandardCharsets.UTF_8);
+      if (tag == NUMERIC_STRING || tag == PRINTABLE_STRING || tag == T61_STRING ||
+          tag == VIDEOTEX_STRING || tag == IA5_STRING || tag == VISIBLE_STRING)
+            return string.getBytes(StandardCharsets.ISO_8859_1);
+      if (tag == BMP_STRING) return string.getBytes(StandardCharsets.UTF_16BE);
+      if (tag == OBJECT_IDENTIFIER) {
+        String[] s = string.split(&quot;\\.&quot;);
+        long[] l = new long[s.length];
+        for (int i = 0; i &lt; s.length; i++) {
+          l[i] = Long.parseLong(s[i]);
+          if (l[i] &lt; 0) throw new IllegalArgumentException();
+        }
+        if ((l.length &lt; 2) || (l[0] &gt; 2) || (l[0] &lt; 2 &amp;&amp; l[1] &gt;= 40)) throw new IllegalArgumentException();
+        l[1] += l[0] * 40;
+        int sum = 0, pos = 0;
+        for (int i = 1; i &lt; l.length; i++) sum += getNum(l[i], 7);
+        byte[] bytes = new byte[sum];
+        for (int i = 1; i &lt; l.length; i++) {
+          int num = getNum(l[i], 7);
+          for (int j = (num - 1) * 7; j &gt;= 0; j -= 7) {
+            bytes[pos++] = ((byte)(j &gt; 0 ? (l[i] &gt;&gt;&gt; j) | 0x80 : (l[i] &gt;&gt;&gt; j) &amp; 0x7F));
+          }
+        }
+        return bytes;
+      }
+    } else if (obj instanceof Boolean &amp;&amp; tag == BOOLEAN) {
+        return new byte[] { (byte)(((Boolean)obj).booleanValue() ? 0xFF : 0x00) };
+    } else if (obj instanceof Date) {
+      String f = null;
+      if (tag == UTC_TIME) f = &quot;yyMMddHHmmss&apos;Z&apos;&quot;;
+      else if (tag == GENERALIZED_TIME) f = &quot;yyyyMMddHHmmss&apos;Z&apos;&quot;;
+      if (f != null) {
+        SimpleDateFormat dateFormat = new SimpleDateFormat(f);
+        //dateFormat.setTimeZone(new SimpleTimeZone(0, &quot;Z&quot;));
+        return dateFormat.format((Date)obj).getBytes(StandardCharsets.UTF_8);
+      }
+    } else if (obj instanceof Object[]) {
+      Object[] array = ((Object[])obj);
+      if (tag == BIT_STRING &amp;&amp; array.length == 2 &amp;&amp; array[0] instanceof Integer &amp;&amp; array[1] instanceof byte[]) {
+        //if (((Integer)array[0]).intValue() &gt; 7) throw new IllegalArgumentException();
+        byte[] bytes = new byte[((byte[])array[1]).length + 1];
+        System.arraycopy((byte[])array[1], 0, bytes, 1, ((byte[])array[1]).length);
+        bytes[0] = ((Integer)array[0]).byteValue();
+        return bytes;
+      }
+    } else if (obj instanceof Integer &amp;&amp; tag == INTEGER) {
+      return new BigInteger(((Integer)obj).toString()).toByteArray();
+    } else if (obj instanceof Long &amp;&amp; tag == INTEGER) {
+      return new BigInteger(((Long)obj).toString()).toByteArray();
+    } else if (obj instanceof BigInteger &amp;&amp; tag == INTEGER) {
+      return ((BigInteger)obj).toByteArray();
+    }
+    throw new IllegalArgumentException(&quot;object not defined&quot;);
+  }
+
+  public String typeName() {
+    switch (flags &amp; 0xC0) {  // 1100 0000
+      case UNIVERSAL:
+        switch (tag) {
+          case EOC: return &quot;EOC&quot;;
+          case BOOLEAN: return &quot;BOOLEAN&quot;;
+          case INTEGER: return &quot;INTEGER&quot;;
+          case BIT_STRING: return &quot;BIT STRING&quot;;
+          case OCTET_STRING: return &quot;OCTET STRING&quot;;
+          case NULL: return &quot;NULL&quot;;
+          case OBJECT_IDENTIFIER: return &quot;OBJECT IDENTIFIER&quot;;
+          case OBJECT_DESCRIPTOR: return &quot;OBJECT DESCRIPTOR&quot;;
+          case EXTERNAL: return &quot;EXTERNAL&quot;;
+          case REAL: return &quot;REAL&quot;;
+          case ENUMERATED: return &quot;ENUMERATED&quot;;
+          case EMBEDDED_PDV: return &quot;EMBEDDED PDV&quot;;
+          case UTF8_STRING: return &quot;UTF8 STRING&quot;;
+          case SEQUENCE: return &quot;SEQUENCE&quot;;
+          case SET: return &quot;SET&quot;;
+          case NUMERIC_STRING: return &quot;NUMERIC STRING&quot;;
+          case PRINTABLE_STRING: return &quot;PRINTABLE STRING&quot;;
+          case T61_STRING: return &quot;T61 STRING&quot;;
+          case VIDEOTEX_STRING: return &quot;VIDEOTEX STRING&quot;;
+          case IA5_STRING: return &quot;IA5 STRING&quot;;
+          case UTC_TIME: return &quot;UTC TIME&quot;;
+          case GENERALIZED_TIME: return &quot;GENERALIZED TIME&quot;;
+          case GRAPHIC_STRING: return &quot;GRAPHIC STRING&quot;;
+          case VISIBLE_STRING: return &quot;VISIBLE STRING&quot;; // ISO646_STRING
+          case GENERAL_STRING: return &quot;GENERAL STRING&quot;;
+          case UNIVERSAL_STRING: return &quot;UNIVERSAL STRING&quot;;
+          case CHARACTER_STRING: return &quot;CHARACTER STRING&quot;;
+          case BMP_STRING: return &quot;BMP STRING&quot;;
+        }
+        return &quot;Universal_&quot; + tag;
+      case APPLICATION: return &quot;Application_&quot; + tag;
+      case CONTEXT: return &quot;Context_&quot; + tag;
+      case PRIVATE: return &quot;Private_&quot; + tag;
+    }
+    return &quot;unknown&quot;;
+  }
+
+  @Override
+  public String toString() {
+    return &quot;[&quot; + String.format(&quot;%02X&quot;, tag) + &quot;] &quot; + typeName() +
+      (isConstructed() ? &quot; (&quot; + getSubElementsCount() + &quot; elem)&quot; : (isEncapsulated() ? &quot; (encapsulates &quot;+getSubElementsCount()+&quot; elem)&quot;:&quot;&quot;)) +
+      &quot; Length: &quot; + headLength() + (isEncapsulated() &amp;&amp; prefEncapsulated().length &gt; 0 ? &quot;+&quot; + prefEncapsulated().length : &quot;&quot;) + &quot;+&quot; + length +(indefinite ? &quot; (indefinite)&quot; : &quot;&quot;);
+  }
+
+  public void print() { print(System.out::println); }
+
+  public void print(Consumer&lt;String&gt; action) {
+    int offset = 0;
+    for (Asn1Object o : this) {
+      StringBuilder sb = new StringBuilder();
+      Asn1Object parent = o.getParent();
+      while (parent != getParent()) {
+        sb.append(&quot;  &quot;);
+        parent = parent.getParent();
+      }
+      sb.append(o.toString() + &quot; Offset: &quot; + offset);
+      String s = o.valueAsString();
+      if (s.length() &gt; 0) {
+        if (s.length() &gt; 30) s = s.substring(0, 27) + &quot;...&quot;;
+        sb.append(&quot; Value: &quot; + s);
+      }
+      //sb.setLength(80);
+      action.accept(sb.toString());
+      offset += o.effHeadLength();
+    }
+  }
+
+  private class Asn1Iterator implements Iterator&lt;Asn1Object&gt; {
+    private final Stack&lt;ListIterator&lt;Asn1Object&gt;&gt; stack = new Stack&lt;&gt;();
+    private Asn1Object next;
+
+    public Asn1Iterator(Asn1Object root) { next = root; }
+
+    public boolean hasNext() { return (next != null); }
+
+    public Asn1Object next() {
+      if (!hasNext()) throw new NoSuchElementException();
+      Asn1Object o = next;
+      if (next.getSubElementsCount() &gt; 0) {
+        stack.push(o.subElements.listIterator());
+      } else {
+        for (;;) {
+          if (stack.empty()) { next = null; return o; }
+          if (stack.peek().hasNext()) break;
+          stack.pop();
+        }
+      }
+      next = stack.peek().next();
+      return o;
+    }
+
+  } // End of class Asn1Iterator
+
+} // End of class Asn1Object
+</pre>
+</body></html>
