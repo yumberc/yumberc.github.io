@@ -1,0 +1,197 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, Show tables, Database, Download, Source, Free">
+<meta name="keywords" content="Java, Show tables, Database, Download, Source, Free">
+<title>Show tables in database</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Show tables in database</p>
+<a href="ShowTables.jpg"><img src="ShowTables.jpg" width="150" height="150" alt="Show tables in database" title="Show tables in database"></a>
+<p></p>
+<p></p>
+<pre>
+-------------- ShowTables.java -----------------
+
+import java.io.*;
+import java.sql.*;
+import java.util.Properties;
+
+public class ShowTables {
+
+  Writer out;
+  Connection conn;
+  Statement stat;
+  String driver, url, username, password, outfile, pattern;
+  String[] arrTables;
+  int limit = 0;
+
+  ShowTables(String argv[]) {
+    File file;
+    if (argv.length &gt; 0 &amp;&amp; !argv[0].isEmpty()) {
+      file = new File(argv[0]);
+      if (!file.isFile()) throw new RuntimeException(file.getName() + &quot; file not found&quot;);
+    } else {
+      file = new File(&quot;config.properties&quot;);
+      if (!file.exists()) createExample(file);
+    }
+    try (InputStream input = new FileInputStream(file)) {
+      Properties prop = new Properties();
+      if (file.getName().endsWith(&quot;.xml&quot;)) prop.loadFromXML(input);
+      else prop.load(input);
+      driver = prop.getProperty(&quot;driver&quot;, &quot;&quot;).trim();
+      url = prop.getProperty(&quot;url&quot;, &quot;&quot;).trim();
+      username = prop.getProperty(&quot;username&quot;, &quot;&quot;).trim();
+      password = prop.getProperty(&quot;password&quot;, &quot;&quot;).trim();
+      outfile = prop.getProperty(&quot;outfile&quot;, &quot;&quot;).trim();
+      if (outfile.isEmpty()) outfile = &quot;out.txt&quot;;
+      String types = prop.getProperty(&quot;types&quot;, &quot;&quot;).trim();
+      arrTables = (types.isEmpty() ? null : types.split(&quot;\\s*(,|;)\\s*&quot;));
+      pattern = prop.getProperty(&quot;pattern&quot;, &quot;&quot;).trim();
+      if (pattern.isEmpty()) pattern = null;
+      try { limit = Integer.parseInt(prop.getProperty(&quot;limit&quot;)); } catch (Exception e) { }
+    } catch (Exception e) { e.printStackTrace(); }
+    try {
+      out = new FileWriter(outfile);
+      println(&quot;Driver: &quot; + driver);
+      println(&quot;Url: &quot; + url);
+      println(&quot;Name: &quot; + username);
+      println(&quot;Password: &quot; + password);
+      if (arrTables != null &amp;&amp; arrTables.length &gt; 0) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i &lt; arrTables.length; i++) sb.append(i == 0 ? &quot;Types: &quot; : &quot;, &quot;).append(arrTables[i]);
+        println(sb.toString());
+      }
+      if (pattern != null) println(&quot;Pattern: &quot; + pattern);
+      Driver d = (Driver) Class.forName(driver).newInstance();
+      DriverManager.registerDriver(d);
+      conn = DriverManager.getConnection(url, username, password);
+      stat = conn.createStatement();
+      show();
+    } catch (Exception e) {
+      e.printStackTrace();
+    } finally {
+      try { stat.close(); } catch (Exception e) { }
+      try { conn.close(); } catch (Exception e) { }
+      try { out.close(); } catch (Exception e) { }
+    }
+  }
+
+  void show() throws SQLException, IOException {
+    DatabaseMetaData dbmd = conn.getMetaData();
+    try (ResultSet rst = dbmd.getTables(null, null, pattern, arrTables)) {
+      while (rst.next()) {
+        String tableType = rst.getString(&quot;TABLE_TYPE&quot;);
+        String tableSchema = rst.getString(&quot;TABLE_SCHEM&quot;);
+        String tableName = rst.getString(&quot;TABLE_NAME&quot;);
+        String table = (tableSchema.isEmpty() ? tableName : tableSchema + &quot;.&quot; + tableName);
+        println(tableType + &quot; &quot; + table);
+        try (ResultSet rsr = stat.executeQuery(&quot;SELECT * FROM &quot; + table)) {
+          ResultSetMetaData md = rsr.getMetaData();
+          int columns = md.getColumnCount();
+          int[] size = new int[columns];
+          String sl = &quot;+&quot;, sn = &quot;:&quot;;
+          for (int i = 1; i &lt;= columns; i++) {
+            println(&quot; &quot; + md.getColumnName(i) + &quot; &quot; +
+                    md.getColumnTypeName(i) + &quot;(&quot; +
+                    md.getPrecision(i) + &quot;.&quot; + md.getScale(i) + &quot;)&quot; +
+                    (md.isNullable(i) == 0 ? &quot; NotNull&quot; : &quot;&quot;) +
+                    (md.isAutoIncrement(i) ? &quot; Autoincrement&quot; : &quot;&quot; ));
+            int dsize = md.getColumnDisplaySize(i);
+            String columnName = md.getColumnName(i);
+            if (dsize &lt; 1 || dsize &gt; 100) dsize = 20;
+            if (columnName.length() &gt; dsize) dsize = columnName.length();
+            sl += repeat(&quot;-&quot;, dsize + 2) + &quot;+&quot;;
+            sn += &quot; &quot; + columnName + repeat(&quot; &quot;, dsize - columnName.length()) + &quot; :&quot;;
+            size[i - 1] = dsize;
+          }
+          println(sl);
+          println(sn);
+          println(sl);
+          StringBuilder sb = new StringBuilder();
+          int count = 0;
+          while (rsr.next()) {
+            sb.setLength(0);
+            sb.append(&quot;:&quot;);
+            for (int i = 1; i &lt;= columns; i++) {
+              sb.append(&quot; &quot;);
+              Object o = rsr.getObject(i);
+              String v = (o == null ? &quot;&quot; : o.toString());
+              for (int j = 0, dsize = size[i - 1]; j &lt; dsize; j++) {
+                if (j &lt; v.length()) {
+                  char ch =  v.charAt(j);
+                  if (ch &gt; 31) sb.append(ch);
+                  else sb.append(&apos;?&apos;);
+                } else sb.append(&apos; &apos;);
+              }
+              sb.append(v.length() &gt; size[i - 1] ? &quot;&gt;:&quot; : &quot; :&quot;);
+            }
+            println(sb.toString());
+            count++;
+            if (limit &gt; 0 &amp;&amp; count &gt;= limit) break;
+          }
+          println(sl);
+          if (rsr.next()) {
+            println(&quot;Limit: &quot; + count);
+            count = -1;
+            try (ResultSet rsc = stat.executeQuery(&quot;SELECT COUNT(*) FROM &quot; + table)) {
+              if (rsc.next()) count = rsc.getInt(1);
+            } catch (Exception e) { }
+          }
+          if (count &gt;= 0) println(&quot;Row count: &quot; + count);
+        }
+        try (ResultSet rsi = dbmd.getIndexInfo(null, tableSchema, tableName, false, false)) {
+          if (rsi.next()) {
+            println(&quot;Indexes:&quot;);
+            boolean nonUnique = rsi.getBoolean(&quot;NON_UNIQUE&quot;);
+            String indexName = rsi.getString(&quot;INDEX_NAME&quot;);
+            String s = &quot;(&quot; + rsi.getString(&quot;COLUMN_NAME&quot;);
+            while (rsi.next()) {
+              if (indexName.equals(rsi.getString(&quot;INDEX_NAME&quot;))) {
+                s += &quot;, &quot; + rsi.getString(&quot;COLUMN_NAME&quot;);
+              } else {
+                printInd(indexName, s, nonUnique);
+                nonUnique = rsi.getBoolean(&quot;NON_UNIQUE&quot;);
+                indexName = rsi.getString(&quot;INDEX_NAME&quot;);
+                s = &quot;(&quot; + rsi.getString(&quot;COLUMN_NAME&quot;);
+              }
+            }
+            printInd(indexName, s, nonUnique);
+          }
+        }
+      }
+    }
+  }
+
+  void printInd(String indexName, String s, boolean nonUnique) throws IOException {
+    println(&quot; &quot; + indexName + &quot; &quot; + s + (nonUnique ? &quot;)&quot; :&quot;) Unique&quot;));
+  }
+
+  String repeat(String s, int n) {
+    StringBuilder sb = new StringBuilder(s.length() * n);
+    for(int i = 0; i &lt; n; i++) sb.append(s);
+    return sb.toString();
+  }
+
+  void println(String s) throws IOException {
+    out.append(s).append(&quot;\n&quot;);
+    System.out.println(s);
+  }
+
+  void createExample(File file) {
+    try (Writer wr = new FileWriter(file)) {
+      wr.write(&quot;driver=org.apache.derby.jdbc.EmbeddedDriver\nurl=jdbc:derby:DB;create=true\n&quot;);
+      wr.write(&quot;name=\npassword=\noutfile=\ntypes=\npattern=\nlimit=\n&quot;);
+    } catch (Exception e) { }
+  }
+
+  public static void main(String argv[]) { new ShowTables(argv); }
+}
+</pre>
+<p><b><a href="ShowTables.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
