@@ -9,6 +9,13 @@
         <xhtml:link rel="alternate" hreflang="en" href="https://yumberc.github.io"/>
     </url>
     <url>
+        <loc>http://yumberc.github.io/ClassInfo/ClassInfo.html</loc>
+        <image:image>
+            <image:loc>http://yumberc.github.io/ClassInfo/ClassInfo.jpg</image:loc>
+            <image:caption>Java Class Info</image:caption>
+        </image:image>
+    </url>
+    <url>
         <loc>https://yumberc.github.io/FontStore/FontStore.html</loc>
         <image:image>
             <image:loc>https://yumberc.github.io/FontStore/FontStore.jpg</image:loc>
