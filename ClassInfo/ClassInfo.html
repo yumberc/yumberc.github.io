@@ -111,8 +111,9 @@ public class ClassInfo extends Application {
         String tsName = shortName(tcName);
         String taq = type.getCanonicalName().substring(tcName.length());
         if (cName.equals(tcName)) return tsName.concat(taq);
-        if (primitive) return &quot;&lt;i&gt;&quot;.concat(tsName).concat(&quot;&lt;/i&gt;&quot;).concat(taq);
-        return &quot;&lt;a href=\&quot;&quot;+tcName+&quot;\&quot; title=\&quot;&quot;.concat(tcName).concat(&quot;\&quot; onclick=\&quot;return f(this);\&quot;&gt;&quot;).concat(tsName).concat(&quot;&lt;/a&gt;&quot;).concat(taq);
+        if (primitive) return new StringBuilder(&quot;&lt;i&gt;&quot;).append(tsName).append(&quot;&lt;/i&gt;&quot;).append(taq).toString();
+        return new StringBuilder(&quot;&lt;a href=\&quot;&quot;).append(tcName).append(&quot;\&quot; title=\&quot;&quot;).append(tcName)
+          .append(&quot;\&quot; onclick=\&quot;return f(this);\&quot;&gt;&quot;).append(tsName).append(&quot;&lt;/a&gt;&quot;).append(taq).toString();
       };
       Module mdl = c.getModule();
       if (mdl != null &amp;&amp; mdl.getName() != null &amp;&amp; !mdl.getName().isEmpty()) {
@@ -131,7 +132,8 @@ public class ClassInfo extends Application {
       sb.append(&quot;&lt;p&gt;&quot;);
       String indent = &quot;&quot;;
       for (int i = al.size() - 1; i &gt;= 0; i--){
-        sb.append(indent).append(&quot;&lt;a href=\&quot;&quot;).append(al.get(i).getCanonicalName()).append(&quot;\&quot; onclick=\&quot;return f(this);\&quot;&gt;&quot;).append(al.get(i).getCanonicalName()).append(&quot;&lt;/a&gt;&lt;br&gt;&quot;);
+        sb.append(indent).append(&quot;&lt;a href=\&quot;&quot;).append(al.get(i).getCanonicalName()).append(&quot;\&quot; onclick=\&quot;return f(this);\&quot;&gt;&quot;)
+          .append(al.get(i).getCanonicalName()).append(&quot;&lt;/a&gt;&lt;br&gt;&quot;);
         indent = indent.concat(&quot;&amp;emsp;&quot;);
       }
       sb.append(indent).append(cName).append(&quot;&lt;/p&gt;&quot;);
@@ -228,14 +230,12 @@ public class ClassInfo extends Application {
   }
 
   String getAnnotations(Annotation[] annotations) {
-    if (annotations.length &gt; 0) {
-      StringBuilder sb = new StringBuilder();
-      for (Annotation annotation : annotations) {
-        sb.append(annotation.toString()).append(&quot;&lt;br&gt;&quot;);
-      }
-      return sb.toString();
+    if (annotations.length == 0) return &quot;&quot;;
+    StringBuilder sb = new StringBuilder();
+    for (Annotation annotation : annotations) {
+      sb.append(annotation.toString()).append(&quot;&lt;br&gt;&quot;);
     }
-    return &quot;&quot;;
+    return sb.toString();
   }
 }
 </pre>
