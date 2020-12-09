@@ -1,0 +1,406 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, vCard, vcf, Editor, Download, Source, Free">
+<meta name="keywords" content="Java, vCard, vcf, Editor, Download, Source, Free">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VCard.java</title>
+</head>
+<body bgcolor="#FFFFFF">
+<pre>
+
+import java.io.*;
+import java.util.*;
+import java.text.*;
+import java.nio.charset.*;
+
+class VCard implements Comparable&lt;VCard&gt; {
+
+  static String[] ttel = new String[] { &quot;CELL&quot;, &quot;HOME&quot;, &quot;WORK&quot; };
+  static String[] tadr = new String[] { &quot;HOME&quot;, &quot;WORK&quot; };
+  static String[] imgf = new String[] { &quot;JPEG&quot;, &quot;PNG&quot;, &quot;GIF&quot; };
+  Charset charset;
+  int specify;
+  String fname = null, org = null, title = null, note = null;
+  String[] name;
+  byte[] photo = null;
+  int itphoto = 0;
+  Object obj;
+  final List&lt;Itm&gt; tel = new ArrayList&lt;&gt;(), adr = new ArrayList&lt;&gt;(),
+                email = new ArrayList&lt;&gt;(), url = new ArrayList&lt;&gt;();
+  int ptel = -1, padr = -1, pemail = -1, purl = -1;
+  Date bday = null, rev = null;
+  @SuppressWarnings({ &quot;rawtypes&quot;, &quot;unchecked&quot; })
+  final List&lt;Itm&gt;[] al = (List&lt;Itm&gt;[]) new List[] { tel, adr, email, url };
+
+  //VCard() { }
+
+  @Override
+  public int compareTo(VCard vc) {
+    String s1 = (fname == null ? &quot;&quot; : fname), s2 = (vc.fname == null ? &quot;&quot; : vc.fname);
+    return s1.compareToIgnoreCase(s2);
+  }
+
+  @Override
+  public String toString() {
+    String st = &quot;VCard&quot; + &quot;\n&quot;;
+    if (fname != null) st += &quot;FN: &quot; + fname + &quot;\n&quot;;
+    if (name != null) st += &quot;N[]: &quot; + String.join(&quot;,&quot;, name) + &quot;\n&quot;;
+    if (bday != null) st += &quot;BDAY: &quot; + DateFormat.getDateInstance(DateFormat.SHORT).format(bday) + &quot;\n&quot;;
+    if (org != null) st += &quot;ORG: &quot; + org + &quot;\n&quot;;
+    if (title != null) st += &quot;TITLE: &quot; + title + &quot;\n&quot;;
+    if (photo != null) st += &quot;PHOTO: &quot; + imgf[itphoto &lt; 0 || itphoto &gt;= imgf.length ? 0 : itphoto] + &quot; &quot; + photo.length + &quot; Bt\n&quot;;
+    for (List&lt;Itm&gt; litm : al) for (int i = 0; i &lt; litm.size(); i++) if (litm.get(i) != null) {
+      if (litm == tel)
+        st += &quot;TEL: &quot; + (String)tel.get(i).value + &quot; &quot; + ttel[tel.get(i).idl &lt; 0 || tel.get(i).idl &gt;= ttel.length ? 0 : tel.get(i).idl] + (ptel == i ? &quot; PREF&quot; : &quot;&quot;);
+      else if (litm == adr)
+        st += &quot;ADR[]: &quot; + String.join(&quot;,&quot;, (String[])adr.get(i).value).replace(&apos;\n&apos;, &apos; &apos;) + &quot; &quot; + tadr[adr.get(i).idl &lt; 0 || adr.get(i).idl &gt;= tadr.length ? 0 : adr.get(i).idl] + (padr == i ? &quot; PREF&quot; : &quot;&quot;);
+      else if (litm == email)
+        st += &quot;EMAIL: &quot; + (String)email.get(i).value + (pemail == i ? &quot; PREF&quot; : &quot;&quot;);
+      else if (litm == url)
+        st += &quot;URL: &quot; + (String)url.get(i).value + (purl == i ? &quot; PREF&quot; : &quot;&quot;);
+      st += &quot; &quot; + litm.get(i).note.replace(&apos;\n&apos;, &apos; &apos;) + &quot;\n&quot;;
+    }
+    if (note != null) st += &quot;NOTE: &quot; + note.replace(&apos;\n&apos;, &apos; &apos;) + &quot;\n&quot;;
+    if (rev != null) st += &quot;REV: &quot; + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM).format(rev) + &quot;\n&quot;;
+    return st;
+  }
+
+  boolean contains(String st) {
+    st = st.toUpperCase();
+    if ((fname != null &amp;&amp; fname.toUpperCase().indexOf(st) &gt; -1) ||
+        (org != null &amp;&amp; org.toUpperCase().indexOf(st) &gt; -1) ||
+        (title != null &amp;&amp; title.toUpperCase().indexOf(st) &gt; -1) ||
+        (note != null &amp;&amp; note.toUpperCase().indexOf(st) &gt; -1) ||
+        (bday != null &amp;&amp; DateFormat.getDateInstance(DateFormat.SHORT).format(bday).indexOf(st) &gt; -1) ||
+        (rev != null &amp;&amp; DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM).format(rev).indexOf(st) &gt; -1)) return true;
+    if (name != null) for (String s: name) if (s != null &amp;&amp; s.toUpperCase().indexOf(st) &gt; -1) return true;
+    String stt = ctel(st);
+    for (List&lt;Itm&gt; litm : al) for (Itm itm : litm) if (itm != null) {
+      if (itm.note != null &amp;&amp; itm.note.toUpperCase().indexOf(st) &gt; -1) return true;
+      if (itm.value != null) {
+        if (litm == adr) for (String s : (String[])itm.value) { if (s != null &amp;&amp; s.toUpperCase().indexOf(st) &gt; -1) return true; }
+        else if (((String)itm.value).toUpperCase().indexOf(st) &gt; -1) return true;
+      }
+      if (litm == tel &amp;&amp; !stt.isEmpty()) if (ctel((String)itm.value).indexOf(stt) &gt; -1) return true;
+    }
+    return false;
+  }
+
+  String ctel(String st) {
+    StringBuilder sb = new StringBuilder();
+    char ch;
+    for (int i = 0; i &lt; st.length(); i++) {
+      ch = st.charAt(i);
+      if ((ch &gt;= &apos;0&apos; &amp;&amp; ch &lt;= &apos;9&apos;) || ch == &apos;+&apos;) sb.append(ch);
+    }
+    return sb.toString();
+  }
+
+  static BufferedInputStream bis;
+  static int ch;
+
+  static List&lt;VCard&gt; read(InputStream in, Charset cs) throws IOException {
+    VCard.bis = new BufferedInputStream(in, 1024);
+    Map&lt;String, String&gt; mNote = new HashMap&lt;&gt;();
+    int b, e, ind;
+    boolean b64, qp, pref;
+    int itel, iadr, iimgf;
+    byte[] bt;
+    Charset scs;
+    String st, mc, m;
+    if (!&quot;BEGIN:VCARD&quot;.equals(new String(bis.readNBytes(11), StandardCharsets.ISO_8859_1))) throw new IOException(&quot;Format error&quot;);
+    if (cs == null) cs = Charset.defaultCharset();
+    List&lt;VCard&gt; lst = new ArrayList&lt;&gt;();
+    VCard vc = new VCard();
+    ch = -1;
+    do {
+      st = readk();
+      if (st == null) continue;
+      b64 = qp = pref = false;
+      itel = iadr = iimgf = -1;
+      scs = null;
+      bt = null;
+      m = &quot;&quot;;
+      b = 0;
+      mc = null; 
+      do {
+          e = st.indexOf(&apos;;&apos;, b);
+          String prm = st.substring(b, (e &lt; 0 ? st.length() : e)).strip();
+          if (b == 0) {
+            ind = prm.lastIndexOf(&apos;.&apos;);
+            if (ind &gt;= 0) { m = prm.substring(0, ind); prm = prm.substring(ind + 1); }
+            mc = prm;
+          } else {
+            if (!qp &amp;&amp; prm.endsWith(&quot;QUOTED-PRINTABLE&quot;)) qp = true;
+            if (!b64 &amp;&amp; prm.endsWith(&quot;BASE64&quot;)) b64 = true;
+            if (itel == -1) itel = arrs(ttel, prm);
+            if (iadr == -1) iadr = arrs(tadr, prm);
+            if (iimgf == -1) iimgf = arrs(imgf, prm);
+            if (scs == null &amp;&amp; prm.startsWith(&quot;CHARSET=&quot;)) {
+              try { scs = Charset.forName(prm.substring(8)); } catch (Exception ex) { }
+            }
+            if (!pref &amp;&amp; prm.indexOf(&quot;PREF&quot;) &gt;= 0) pref = true;
+          }  
+          b = e + 1;
+      } while (e &gt;= 0);
+      if (&quot;END&quot;.equals(mc) &amp;&amp; &quot;VCARD&quot;.equals(new String(readv(), StandardCharsets.ISO_8859_1))) {
+        for (List&lt;Itm&gt; litm : vc.al)
+          for (Itm itm : litm) if (!itm.m.isEmpty()) { String s = mNote.get(itm.m); if (s != null) itm.note = s; };
+        lst.add(vc);
+        mNote.clear();
+        vc = new VCard();
+        continue;
+      }
+      if (scs == null) scs = cs;
+      if (b64) { bt = readb64(); }
+      else if (qp) { bt = readqp(); }
+      else { bt = readv(); }
+        if (&quot;FN&quot;.equals(mc)) vc.fname = new String(bt, scs);
+        else if (&quot;N&quot;.equals(mc)) vc.name = arrf(bt, 5, scs);
+        else if (&quot;ORG&quot;.equals(mc)) vc.org = new String(bt, scs);
+        else if (&quot;TITLE&quot;.equals(mc)) vc.title = new String(bt, scs);
+        else if (&quot;BDAY&quot;.equals(mc)) vc.bday = parseDate(new String(bt, StandardCharsets.ISO_8859_1));
+        else if (&quot;REV&quot;.equals(mc)) vc.rev = parseDate(new String(bt, StandardCharsets.ISO_8859_1));
+        else if (&quot;NOTE&quot;.equals(mc)) {
+          if (m.isEmpty()) vc.note = new String(bt, scs);
+          else { mNote.put(m, new String(bt, scs)); }
+        } else if (&quot;PHOTO&quot;.equals(mc)) {
+          vc.photo = bt;
+          vc.itphoto = (iimgf &lt; 0 ? 0 : iimgf);
+        } else if (&quot;TEL&quot;.equals(mc)) {
+          vc.tel.add(new Itm(m, (itel &lt; 0 ? 0 : itel), new String(bt, scs) ,&quot;&quot;));
+          if (pref) vc.ptel = vc.tel.size() - 1;
+        } else if (&quot;EMAIL&quot;.equals(mc)) {
+          vc.email.add(new Itm(m, -1, new String(bt, scs), &quot;&quot;));
+          if (pref) vc.pemail = vc.email.size() - 1;
+        } else if (&quot;URL&quot;.equals(mc)) {
+          vc.url.add(new Itm(m, -1, new String(bt, scs), &quot;&quot;));
+          if (pref) vc.purl = vc.url.size() - 1;
+        } else if(&quot;ADR&quot;.equals(mc)) {
+          vc.adr.add(new Itm(m, (iadr &lt; 0 ? 0 : iadr), arrf(bt, 7, scs), &quot;&quot;));
+          if (pref) vc.padr = vc.adr.size() - 1;
+        }
+    } while (ch != -1);
+    return lst;
+  }
+
+  static int arrs(String arr[], String st) {
+    for (int i = 0; i &lt; arr.length; i++) if (st.endsWith(arr[i])) return i;
+    return -1;
+  }
+
+  static String[] arrf(byte[] bt, int sz, Charset cs) {
+    String[] ms = new String[sz];
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    boolean b = false;
+    int c = 0;
+    for (int i = 0; i &lt; bt.length; i++) {
+      if (!b &amp;&amp; bt[i] == &apos;\\&apos;) { b = true; continue; }
+      if (b) b = false;
+      else if (bt[i] == &apos;\\&apos;) continue;
+      else if (bt[i] == &apos;;&apos;) {
+        if (c &gt;= ms.length - 1) break;
+        ms[c++] = baos.toString(cs);
+        baos.reset();
+        continue;
+      }
+      baos.write(bt[i]);
+    }
+    ms[c] = baos.toString(cs);
+    return ms;
+  }
+
+  static String readk() throws IOException {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    while((ch = bis.read()) != -1) {
+      if (ch == &apos;\n&apos;) return null;
+      if (ch == &apos;:&apos;) break;
+      if (ch &gt; 0x20) baos.write((byte) ch);
+    }
+    return (baos.size() == 0 ? null : baos.toString(StandardCharsets.ISO_8859_1).toUpperCase());
+  }
+
+  static byte[] readv() throws IOException {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    while((ch = bis.read()) != -1) {
+      if (ch == &apos;\n&apos;) {
+ 	bis.mark(10);
+        if ((ch = bis.read()) == -1) break;
+        if (ch == 0x20) continue;
+        bis.reset();
+        break;
+      }
+      if (ch != &apos;\r&apos;) baos.write((byte) ch);
+    }
+    return baos.toByteArray();
+  }
+
+  static byte[] readb64() throws IOException {
+    byte[] bt = readv();
+    try {
+      return Base64.getDecoder().decode(bt);
+    } catch (Exception ex) { return null; }
+  }
+
+  static byte[] readqp() throws IOException {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    int c = 0, u = -1, l;
+    while((ch = bis.read()) != -1) {
+      if (ch &gt;= 0x20 || ch == &apos;\n&apos; || ch == &apos;\t&apos;) {
+        if (ch == &apos;=&apos;) { c = 1; continue; } 
+        if (c == 0 &amp;&amp; ch == &apos;\n&apos;) break; 
+        if (c == 1 &amp;&amp; ch == &apos;\n&apos;) { c = 0; continue; } 
+        if (c == 1) { c = 2; u = Character.digit((char) ch, 16); continue; } 
+        if (c == 2) { c = 0; l = Character.digit((char) ch, 16);
+          if (u == -1 || l == -1) continue;
+          ch = ((u &lt;&lt; 4) + l);
+          if (ch &lt; 0x20 &amp;&amp; ch != &apos;\n&apos; &amp;&amp; ch != &apos;\t&apos;) continue;
+        } 
+        baos.write((byte) ch);
+      }
+    }
+    return baos.toByteArray();
+  }
+
+  static Date parseDate(String source) {
+    source = source.replace(&quot;-&quot;, &quot;&quot;).replace(&quot;:&quot;, &quot;&quot;).toUpperCase();
+    String pattern;
+    if (source.length() &gt; 14) { source = source.substring(0, 15); pattern = &quot;yyyyMMdd&apos;T&apos;HHmmss&quot;; }
+    else pattern = &quot;yyyyMMdd&quot;;
+    try {
+      return new SimpleDateFormat(pattern).parse(source);
+    } catch (Exception e) { return null; }
+  }
+
+  final int size = 75;
+  OutputStream out;
+
+  static void write(OutputStream out, List&lt;VCard&gt; lst, Charset charset, int specify) throws IOException {
+    for (VCard vc : lst) vc.write(out, charset, specify);
+  }
+
+  void write(OutputStream out, Charset charset, int specify) throws IOException {
+    this.out = out;
+    this.charset = charset;
+    this.specify = specify;
+    String dptrn1 = &quot;yyyyMMdd&quot;;
+    String dptrn2 = &quot;yyyyMMdd&apos;T&apos;HHmmss&apos;Z&apos;&quot;;
+    int n = 1;
+    String s, mrk = &quot;M&quot;;
+    boolean b;
+    appln(&quot;BEGIN:VCARD&quot;);
+    appln(&quot;VERSION:2.1&quot;);
+    app(&quot;FN&quot;, fname, true);
+    app(&quot;N&quot;, name, 5, true);
+    if (bday != null) appln(&quot;BDAY:&quot; + new SimpleDateFormat(dptrn1).format(bday));
+    app(&quot;ORG&quot;, org, false);
+    app(&quot;TITLE&quot;, title, false);
+    for (List&lt;Itm&gt; litm : al) for (int i = 0; i &lt; litm.size(); i++) {
+      s = ((b = !litm.get(i).note.isEmpty()) ? mrk + (n++) + &quot;.&quot; : &quot;&quot;);
+      if (litm == tel)
+        app(al(s + &quot;TEL&quot;, ttel, tel.get(i).idl, (i == ptel)), (String)tel.get(i).value, b);
+      else if (litm == email)
+        app(al(s + &quot;EMAIL&quot;, null, 0, (i == pemail)), (String)email.get(i).value, b);
+      else if (litm == url)
+        app(al(s + &quot;URL&quot;, null, 0, (i == purl)), (String)url.get(i).value, b);
+      else if (litm == adr)
+        app(al(s + &quot;ADR&quot;, tadr, adr.get(i).idl, (i == padr)), (String[])adr.get(i).value, 7, b);
+      if (b) app(s + &quot;NOTE&quot;, litm.get(i).note, false);
+    }
+    if (photo != null &amp;&amp; photo.length != 0) {
+      String st = &quot;PHOTO;TYPE=&quot;+ imgf[itphoto &lt; 0 || itphoto &gt;= imgf.length ? 0 : itphoto] +&quot;;ENCODING=BASE64:&quot; + Base64.getEncoder().encodeToString(photo);
+      appln(st.substring(0, Math.min(st.length(), size + 1)));
+      for (int index = size + 1; index &lt; st.length(); index += size)
+        appln(&quot; &quot; + st.substring(index, Math.min(st.length(), index + size)));
+      out.write(&apos;\r&apos;);
+      out.write(&apos;\n&apos;);
+    }
+    app(&quot;NOTE&quot;, note, false);
+    if (rev != null) appln(&quot;REV:&quot; + new SimpleDateFormat(dptrn2).format(rev));
+    appln(&quot;END:VCARD&quot;);
+  }
+
+  String al(String st, String[] ms, int i, boolean b) {
+    StringBuilder sb = new StringBuilder(st);
+    if (ms != null) sb.append(&apos;;&apos;).append(ms[(i &lt; 0 || i &gt;= ms.length ? 0 : i)]);
+    if (b) sb.append(&quot;;PREF&quot;);
+    return sb.toString();
+  }
+
+  void appln(String st) throws IOException {
+    out.write(st.getBytes(StandardCharsets.ISO_8859_1));
+    out.write(&apos;\r&apos;);
+    out.write(&apos;\n&apos;);
+  }
+
+  void app(String st, String s, boolean required) throws IOException {
+    app(st, new String[] { s }, 1, required);
+  }
+
+  void app(String st, String[] ms, int len, boolean required)  throws IOException {
+    boolean ascii = true, empty = true, singleline = true;
+    StringBuilder sb = new StringBuilder();
+    for (int j = 0; j &lt; len; j++) {
+      if (j &gt; 0) sb.append(&apos;;&apos;);
+      String s = (ms != null &amp;&amp; j &lt; ms.length &amp;&amp; ms[j] != null ? ms[j] : &quot;&quot;);
+      int end = s.length() - 1;
+      while (end &gt;= 0 &amp;&amp; s.charAt(end) == 0x20) end--;
+      for (int i = 0; i &lt;= end; i++) {
+        char ch = s.charAt(i);
+        if (ch &gt;= 0x20 || ch == &apos;\n&apos; || ch == &apos;\t&apos;) {
+          if (len &gt; 1 &amp;&amp; (ch == &apos;\\&apos; || ch ==&apos;;&apos;)) sb.append(&apos;\\&apos;);
+          if (ascii &amp;&amp; ch &gt; 0x7e) ascii = false;
+          if (singleline &amp;&amp; ch == &apos;\n&apos;) singleline = false;
+          if (empty) empty = false;
+          sb.append(ch);
+        }
+      }
+    }
+    if (required || !empty) {
+      byte[] bt = sb.toString().getBytes(charset);
+      sb.setLength(0);
+      int spc = specify;
+      if (ascii) spc = 2;
+      if (!singleline) spc = 0;
+      sb.append(st);
+      if (spc &lt; 2) sb.append(&quot;;CHARSET=&quot;).append(charset.name().toUpperCase());
+      if (spc &lt; 1) sb.append(&quot;;ENCODING=QUOTED-PRINTABLE&quot;);
+      sb.append(&apos;:&apos;);
+      if (spc &lt; 1) {  // 0-Charset+QP, 1-Specified, 2-Not specified
+        for (int cnt = sb.length(), i = 0; i &lt; bt.length; i++) {
+          int ch = (bt[i] &amp; 0xFF);
+          if (cnt &gt;= size) { sb.append(&quot;=\r\n&quot;); cnt = 0; }
+          if (ch == &apos;\n&apos;) {
+            sb.append(&quot;=0D=0A&quot;); cnt = 0;
+            if (bt.length - i &gt; 1) sb.append(&quot;=\r\n&quot;);
+          } else if (ch &gt;= 0x20 &amp;&amp; ch &lt;= 0x7e &amp;&amp; ch != &apos;=&apos;) {
+            sb.append((char)ch); cnt++;
+          } else {
+            sb.append(String.format(&quot;=%02X&quot;, ch)); cnt += 3;
+          }
+        }
+        appln(sb.toString());
+      } else {
+        out.write(sb.toString().getBytes(StandardCharsets.ISO_8859_1));
+        out.write(bt);
+        out.write(&apos;\r&apos;);
+        out.write(&apos;\n&apos;);
+      }
+    }
+  }
+
+  static class Itm {
+
+    int idl;
+    String m, note;
+    Object value;
+
+    Itm(String m, int idl, Object value, String note) { this.m = m; this.idl = idl; this.value = value; this.note = note; }
+
+    @Override
+    public String toString() { return &quot;Itm &quot; + (value instanceof String ? (String) value : value instanceof String[] ? Arrays.toString((String[]) value) : &quot;&quot;); }
+  }
+
+}
+</pre>
+</body></html>

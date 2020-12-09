@@ -1,0 +1,769 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, JavaFX, vCard, vcf, Editor, Download, Source, Free">
+<meta name="keywords" content="Java, JavaFX, vCard, vcf, Editor, Download, Source, Free">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VCardEdit.java</title>
+</head>
+<body bgcolor="#FFFFFF">
+<pre>
+
+import java.io.*;
+import java.nio.file.*;
+import java.nio.charset.*;
+import java.util.*;
+import java.util.function.*;
+import java.util.Map.*;
+import java.util.AbstractMap.*;
+import java.text.*;
+import java.time.*;
+
+import javafx.application.*;
+import javafx.stage.*;
+import javafx.scene.*;
+import javafx.scene.image.*;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.scene.text.*;
+import javafx.scene.input.*;
+import javafx.scene.canvas.*;
+import javafx.scene.paint.*;
+import javafx.collections.*;
+import javafx.collections.transformation.*;
+import javafx.beans.*;
+import javafx.beans.property.*;
+import javafx.geometry.*;
+import javafx.event.*;
+
+public class VCardEdit extends Application {
+
+  TableView&lt;VCard&gt; tableView;
+  ObservableList&lt;VCard&gt; data = null;
+  ObservableList&lt;String&gt; oblCharset = null;
+  boolean nf = false;
+  SortedList&lt;VCard&gt; sortedList;
+  TableRow&lt;VCard&gt; currentRow = null;
+  ContextMenu contextMenu = new ContextMenu();
+  FileChooser.ExtensionFilter efVcf = new FileChooser.ExtensionFilter(&quot;vCard (*.vcf, *.vcard)&quot;, &quot;*.vcf&quot;, &quot;*.vcard&quot;);
+  FileChooser.ExtensionFilter efImgs = new FileChooser.ExtensionFilter(&quot;Supported image formats (*.jpg, *.jpeg, *.png, *.gif)&quot;, &quot;*.jpg&quot;, &quot;*.jpeg&quot;, &quot;*.png&quot;, &quot;*.gif&quot;);
+  FileChooser.ExtensionFilter efAll = new FileChooser.ExtensionFilter(&quot;All files (*.*)&quot;, &quot;*.*&quot;);
+  BooleanProperty bprModified = new SimpleBooleanProperty(false);
+  StringProperty sprFNane = new SimpleStringProperty(&quot;&quot;);
+  Charset charset = Charset.defaultCharset();
+  int csSpecify = 0;
+  Label lsb1, lsb2;
+  Stage stage;
+  File appRootPath;
+
+  @Override
+  public void start(Stage stage) {
+    this.stage = stage;
+    try {
+      String sarp = getClass().getProtectionDomain().getCodeSource().getLocation().toURI().getPath();
+      if (getClass().getResource(&quot;/&quot; + getClass().getName() + &quot;.class&quot;).toString().startsWith(&quot;jar:&quot;)) {
+        sarp = sarp.substring(0, sarp.lastIndexOf(&quot;/&quot;) + 1);
+      }
+      appRootPath = new File(sarp);
+    } catch (Exception ex) { appRootPath = new File(&quot;&quot;); }
+    BorderPane layout = new BorderPane();
+    stage.setScene(new Scene(layout, 700, 400));
+    lsb1 = new Label(&quot;&quot;); lsb1.setPrefWidth(150);
+    lsb2 = new Label(charset.name());
+    MenuBar menuBar = new MenuBar();
+    Menu miFile = new Menu(&quot;File&quot;);
+    menuBar.setBackground(Background.EMPTY);
+    MenuItem miFileNew = new MenuItem(&quot;New&quot;);
+    miFileNew.setOnAction(ae -&gt; { if (confirmSave()) { data.clear(); sprFNane.set(&quot;&quot;); bprModified.set(false); nf = false; } });
+    MenuItem miFileOpen = new MenuItem(&quot;Open...&quot;);
+    miFileOpen.setOnAction(ae -&gt; { if (confirmSave()) load(null, true); });
+    MenuItem miFileAppendFrom = new MenuItem(&quot;Append from...&quot;);
+    miFileAppendFrom.setOnAction(ae -&gt; { load(null, false); });
+    MenuItem miFileSave = new MenuItem(&quot;Save&quot;);
+    miFileSave.setOnAction(ae -&gt; { save(false); });
+    MenuItem miFileSaveAs = new MenuItem(&quot;Save as...&quot;);
+    miFileSaveAs.setOnAction(ae -&gt; { save(true); });
+    MenuItem miFileOptions = new MenuItem(&quot;Options...&quot;);
+    miFileOptions.setOnAction(ae -&gt; { options(); });
+    MenuItem miFileExit = new MenuItem(&quot;Exit&quot;);
+    miFileExit.setOnAction(ae -&gt; { if (confirmSave()) { Platform.exit(); System.exit(0); } });
+    miFile.getItems().addAll(miFileNew, miFileOpen, miFileAppendFrom, miFileSave, miFileSaveAs, miFileOptions, new SeparatorMenuItem(), miFileExit);
+    menuBar.getMenus().addAll(miFile);
+    miFile.setOnShowing(e -&gt; { miFileSave.setDisable(!bprModified.get() || nf || sprFNane.get().isEmpty()); });
+    BorderPane topLayout = new BorderPane();
+    topLayout.setLeft(menuBar);
+    topLayout.setRight(search());
+    layout.setTop(topLayout);
+    vCardTable();
+    layout.setCenter(tableView);
+    HBox hBox = new HBox(lsb1, lsb2); hBox.setPadding(new Insets(2, 0, 2, 6));
+    hBox.setOnMouseClicked(me -&gt; {
+      if (me.getButton() == MouseButton.PRIMARY &amp;&amp; me.getClickCount() == 2) options();
+    });
+    layout.setBottom(hBox);
+    stage.setOnCloseRequest(e -&gt; { if (!confirmSave()) e.consume(); });
+    stage.show();
+    Platform.runLater(() -&gt; {
+      List&lt;String&gt; p = getParameters().getRaw();
+      if (!p.isEmpty()) {
+        File pFile = new File(p.get(0)).getAbsoluteFile();
+        try { pFile = pFile.getCanonicalFile(); } catch (Exception ex) { }
+        if (pFile.isFile()) load(pFile, true);  // new Thread(() -&gt; { load(pFile, true); }).start();
+        else alert(Alert.AlertType.CONFIRMATION, &quot;File &quot; + pFile.getName() + &quot; not found.&quot;, stage, ButtonType.OK);
+      }
+      tableView.requestFocus();
+    });
+  }
+
+  boolean confirmSave() {
+    if (bprModified.get()) {
+      ButtonType bttp = alert(Alert.AlertType.CONFIRMATION, &quot;File is changed. Save?&quot;, stage, ButtonType.YES, ButtonType.NO, ButtonType.CANCEL);
+      if (bttp == null || bttp == ButtonType.CANCEL) return false;
+      if (bttp == ButtonType.NO) return true;
+      return save(false);
+    }
+    return true;
+  }
+
+  boolean load(File openFile, boolean v) {
+    if (openFile == null) {
+      FileChooser fileChooser = new FileChooser();
+      fileChooser.setTitle(&quot;Open (&quot; + charset.name()+&quot;)&quot;);
+      fileChooser.getExtensionFilters().addAll(efVcf, efAll);
+      fileChooser.setInitialDirectory(appRootPath.isDirectory() ? appRootPath : null);
+      openFile = fileChooser.showOpenDialog(stage);
+      if (openFile == null) return false;
+    }
+    appRootPath = openFile.getParentFile();
+    try (InputStream in = Files.newInputStream(openFile.toPath())) {
+      if (v) data.clear();
+      data.addAll(VCard.read(in, charset));
+      tableView.refresh();
+      tableView.getSelectionModel().selectFirst();
+      if (v) { sprFNane.set(openFile.getName()); nf = true; }
+      bprModified.set(!v);
+      return true;
+    } catch (Exception ex) { alert(Alert.AlertType.ERROR, ex.toString(), stage, ButtonType.OK); }
+    return false;
+  }
+
+  boolean save(boolean v) {
+    File saveFile;
+    if (v || nf || sprFNane.get().isEmpty() || !appRootPath.isDirectory()) {
+      FileChooser fileChooser = new FileChooser();
+      fileChooser.setTitle(&quot;Save as (&quot; + charset.name()+&quot;)&quot;);
+      fileChooser.getExtensionFilters().addAll(efAll, efVcf);
+      fileChooser.setInitialDirectory(appRootPath.isDirectory() ? appRootPath : null);
+      fileChooser.setInitialFileName(sprFNane.get().isEmpty() ? &quot;vCard.vcf&quot; : sprFNane.get());
+      saveFile = fileChooser.showSaveDialog(stage);
+      if (saveFile == null) return false;
+      appRootPath = saveFile.getParentFile();
+    } else saveFile = new File(appRootPath, sprFNane.get());
+    try (OutputStream out = Files.newOutputStream(saveFile.toPath())) {
+      VCard.write(out, sortedList, charset, csSpecify);
+      bprModified.set(false);
+      sprFNane.set(saveFile.getName());
+      nf = false;
+      return true;
+    } catch (Exception ex) { alert(Alert.AlertType.ERROR, ex.toString(), stage, ButtonType.OK); }
+    return false;
+  }
+
+  void vCardTable() {
+    InvalidationListener listener = obs -&gt; { stage.setTitle((sprFNane.get().isEmpty() ? &quot;New&quot; : sprFNane.get()) + (bprModified.get() ? &quot; *&quot; : &quot;&quot;)); };
+    bprModified.addListener(listener);
+    sprFNane.addListener(listener);
+    listener.invalidated(null);
+    Font fontBold = Font.font(Font.getDefault().getFamily(), FontWeight.BOLD, Font.getDefault().getSize() + 3);
+    tableView = new TableView&lt;&gt;();
+    tableView.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+    tableView.setPlaceholder(new Label(null));
+    data = FXCollections.observableArrayList();
+    sortedList = new SortedList&lt;&gt;(data);
+    sortedList.comparatorProperty().bind(new SimpleObjectProperty&lt;Comparator&lt;VCard&gt;&gt;((t1, t2) -&gt; t1.compareTo(t2)));
+    tableView.setItems(sortedList);
+    TableColumn&lt;VCard, VCard&gt; column = new TableColumn&lt;&gt;();
+    column.setCellValueFactory(c -&gt; new ReadOnlyObjectWrapper&lt;VCard&gt;(c.getValue()));
+    column.setCellFactory(c -&gt; new TableCell&lt;VCard, VCard&gt;() {
+      Node emptyPhoto = crPict(null, 0);
+      @Override
+      public void updateItem(VCard item, boolean empty) {
+        super.updateItem(item, empty);
+        if (empty || item == null) setGraphic(null);
+        else {
+          if (item.obj == null) {
+            Image img = crImg(item.photo);
+            item.obj = new SimpleEntry&lt;Image, Node&gt;(img, (img == null ? null : crPict(img, 0)));
+          }
+          @SuppressWarnings(&quot;unchecked&quot;) Entry&lt;Image, Node&gt; ent = (Entry&lt;Image, Node&gt;) item.obj;
+          Node pict = (ent.getKey() == null ? emptyPhoto : ent.getValue());
+          GridPane gridPane = new GridPane();
+          gridPane.setHgap(20);
+          gridPane.setPadding(new Insets(1, 10, 1, 10));
+          gridPane.add(pict, 0, 0, 1, 4);
+          Label l = new Label(item.fname); l.setMaxWidth(400); l.setFont(fontBold);
+          gridPane.add(l, 1, 0, 3, 1);
+          String[] st = new String[] { item.name[0], item.name[1], item.name[2] };
+          for (int i = 0; i &lt; 3; i++) {
+            Label label;
+            label = new Label(st[i]); label.setMinWidth(130); label.setMaxWidth(130);
+            gridPane.add(label, 1, i + 1);
+            String s;
+            s = (item.tel.size() &gt; i ? (String)item.tel.get(i).value : &quot;&quot;);
+            label = new Label(s); label.setMinWidth(150); label.setMaxWidth(150);
+            gridPane.add(label, 2, i + 1);
+            s = (item.email.size() &gt; i ? (String)item.email.get(i).value : &quot;&quot;);
+            label = new Label(s); label.setMinWidth(200); label.setMaxWidth(200);
+            gridPane.add(label, 3, i + 1);
+          }
+          setGraphic(gridPane);
+        }
+      }
+    });
+    tableView.getColumns().add(column);
+    MenuItem miEdit = new MenuItem(&quot;Edit&quot;);
+    miEdit.setOnAction(ae -&gt; { edit(0); });
+    MenuItem miView = new MenuItem(&quot;View&quot;);
+    miView.setOnAction(ae -&gt; { view(); });
+    MenuItem miIns = new MenuItem(&quot;Insert&quot;);
+    miIns.setOnAction(ae -&gt; { edit(1); });
+    MenuItem miDel = new MenuItem(&quot;Delete&quot;);
+    miDel.setOnAction(ae -&gt; { delete(); });
+    contextMenu.getItems().setAll(miEdit, miView, miIns, new SeparatorMenuItem(), miDel);
+    tableView.setRowFactory(tv -&gt; {
+      TableRow&lt;VCard&gt; row = new TableRow&lt;&gt;();
+      row.setOnMouseClicked(me -&gt; { currentRow = row; });
+      return row;
+    });
+    tableView.setOnMouseClicked(me -&gt; {
+      if (contextMenu.isShowing()) contextMenu.hide();
+      boolean b = (currentRow == null || currentRow.isEmpty());
+      if (me.getButton() == MouseButton.PRIMARY &amp;&amp; me.getClickCount() == 2 &amp;&amp; !b) {
+        edit(0);
+      } else if (me.getButton() == MouseButton.SECONDARY) {
+        miEdit.setDisable(b);
+        miView.setDisable(b);
+        miDel.setDisable(b);
+        contextMenu.show((Node)me.getSource(), me.getScreenX(), me.getScreenY());
+      }
+    });
+    tableView.setOnKeyPressed(ke -&gt; {
+      if (ke.getCode() == KeyCode.ENTER) edit(0);
+      //else if (ke.getCode() == KeyCode.F3) { int index = tableView.getSelectionModel().getSelectedIndex(); if (index &gt;= 0) System.out.println(sortedList.get(index).toString()); }
+      else if (ke.getCode() == KeyCode.F5) view();
+      else if (ke.getCode() == KeyCode.INSERT) edit(1);
+      else if (ke.getCode() == KeyCode.DELETE) delete();
+    });
+
+    tableView.getSelectionModel().selectedItemProperty().addListener((v, o, n) -&gt; {
+      int index = tableView.getSelectionModel().getSelectedIndex();
+      lsb1.setText(index &lt; 0 ? &quot;&quot; : (index + 1) + &quot; / &quot;+sortedList.size());
+    });
+
+    tableView.widthProperty().addListener((v, o, n) -&gt; {
+      Pane header = (Pane)tableView.lookup(&quot;TableHeaderRow&quot;);
+      if (header != null &amp;&amp; header.isVisible()) {
+        header.setMaxHeight(0); header.setMinHeight(0); header.setPrefHeight(0);
+        header.setVisible(false); header.setManaged(false);
+      }
+    });
+    tableView.getSelectionModel().selectFirst();
+  }
+
+  Image crImg(byte[] bytes) {
+    if (bytes != null &amp;&amp; bytes.length != 0) {
+      Image img = new Image(new ByteArrayInputStream(bytes));
+      if (img.getWidth() &gt; 0 &amp;&amp; img.getHeight() &gt; 0) return img;
+    }
+    return null;
+  }
+
+  Node crPict(Image image, int vr) {
+    int size = (vr == 0 ? 50 : 200);
+    if (image == null) {
+      Canvas canvas = new Canvas(size, size);
+      GraphicsContext gc = canvas.getGraphicsContext2D();
+      gc.setFill(Color.LIGHTGREY);
+      gc.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
+      double scale = size / 10;
+      gc.scale(scale, scale);
+      gc.setFill(Color.GRAY);
+      gc.appendSVGPath(&quot;M3 3A1 1 0 007 3A1 1 0 003 3&quot;);
+      gc.appendSVGPath(&quot;M1 9A2 4 0 013 5A4 6 0 007 5A2 4 0 019 9Z&quot;);
+      gc.fill();
+      return canvas;
+    }
+    ImageView imageView = new ImageView(image);
+    imageView.setPreserveRatio(true);
+    imageView.setFitHeight(Math.min(imageView.getImage().getHeight(), size));
+    imageView.setFitWidth(Math.min(imageView.getImage().getWidth(), size));
+    StackPane stackPane = new StackPane(imageView);
+    stackPane.setMinSize(size, size);
+    return stackPane;
+  }
+
+  void edit(int vr) {
+    int index = tableView.getSelectionModel().getSelectedIndex(), dindex = -1;
+    VCard vc;
+    if (vr &gt; 0 || index &gt;= 0) {
+      if (vr &gt; 0) vc = new VCard();
+      else {
+        dindex = sortedList.getSourceIndex(index);
+        vc = data.get(dindex);
+      }
+      Dialog&lt;ButtonType&gt; dialog = new Dialog&lt;&gt;();
+      dialog.initOwner(stage);
+      dialog.initStyle(StageStyle.UTILITY);
+      dialog.setTitle(vr &gt; 0 ? &quot;New&quot; : vc.fname);
+      dialog.setHeaderText(null);
+      ObservableList&lt;String&gt; olfname = FXCollections.observableArrayList();
+      ComboBox&lt;String&gt; cbfname = new ComboBox&lt;&gt;(olfname); cbfname.setPrefWidth(200);
+      cbfname.setValue(vc.fname);
+      cbfname.setEditable(true);
+      LocalDate localDate = (vc.bday == null ? null : vc.bday.toInstant().atZone(ZoneId.systemDefault()).toLocalDate());
+      DatePicker dpbday = new DatePicker(localDate); dpbday.setPrefWidth(200);
+      dpbday.focusedProperty().addListener((v, o, n) -&gt; {
+        if (!n) dpbday.getOnShowing().handle(new Event(Event.ANY));
+      });
+      dpbday.setOnShowing(e -&gt; {
+        try {
+         dpbday.setValue(dpbday.getConverter().fromString(dpbday.getEditor().getText()));
+        } catch (Exception ex) { dpbday.setValue(null); dpbday.getEditor().setText(&quot;&quot;); }
+      });
+      TextField tforg = new TextField(vc.org);
+      TextField tftitle = new TextField(vc.title);
+      Platform.runLater(() -&gt; cbfname.requestFocus());
+      GridPane gp1 = new GridPane();
+      gp1.setHgap(20);
+      gp1.setVgap(6);
+      GridPane gp2 = new GridPane();
+      gp2.setHgap(10);
+      gp2.setVgap(6);
+      Label l1, l2, l3, l4;
+      gp2.addRow(0, l1 = new Label(&quot;Full name:&quot;), cbfname); GridPane.setHalignment(l1, HPos.RIGHT);
+      int r = 1;
+      String[] t = { &quot;Family name&quot;, &quot;Given name&quot;, &quot;Additional name&quot;, &quot;Honorific prefixe&quot;, &quot;Honorific suffixe&quot; };
+      if (vc.name == null || vc.name.length != t.length) vc.name = new String[t.length];
+      TextField[] tf = new TextField[t.length];
+      for (int i = 0; i &lt; t.length; i++) {
+        Label l = new Label(t[i] + &quot;:&quot;);
+        gp2.addRow(r++, l, tf[i] = new TextField(vc.name[i])); GridPane.setHalignment(l, HPos.RIGHT);
+      }
+      gp2.addRow(r++, l2 = new Label(&quot;Date of birth:&quot;), dpbday); GridPane.setHalignment(l2, HPos.RIGHT);
+      gp2.addRow(r++, l3 = new Label(&quot;Organization:&quot;), tforg); GridPane.setHalignment(l3, HPos.RIGHT);
+      gp2.addRow(r,   l4 = new Label(&quot;Job title:&quot;), tftitle); GridPane.setHalignment(l4, HPos.RIGHT);
+      cbfname.setOnShowing(e -&gt; {
+        cbfname.getItems().clear();
+        boolean b1 = !tf[0].getText().isBlank(), b2 = !tf[1].getText().isBlank();
+        if (b1) cbfname.getItems().addAll(tf[0].getText());
+        if (b2) cbfname.getItems().addAll(tf[1].getText());
+        if (b1 &amp;&amp; b2) cbfname.getItems().addAll(tf[0].getText() + &quot; &quot; + tf[1].getText(), tf[1].getText() + &quot; &quot; + tf[0].getText());
+      });
+      gp1.add(gp2, 0, 0); gp2.setAlignment(Pos.TOP_RIGHT);
+      ObservableList&lt;VCard.Itm&gt; oltel = FXCollections.observableArrayList(vc.tel);
+      int[] aiptel = { vc.ptel };
+      gp1.add(listEd(new String[] { &quot;Phone&quot; }, &quot;Phone numbers&quot;, oltel, aiptel, 0, dialog), 0, 1);
+      ObservableList&lt;VCard.Itm&gt; olemail = FXCollections.observableArrayList(vc.email);
+      int[] aipemail = { vc.pemail };
+      gp1.add(listEd(new String[] { &quot;E-mail&quot; }, &quot;E-mail addresses&quot;, olemail, aipemail, 1, dialog), 0, 2);
+      ObservableList&lt;VCard.Itm&gt; olurl = FXCollections.observableArrayList(vc.url);
+      int[] aipurl = { vc.purl };
+      gp1.add(listEd(new String[] { &quot;URL&quot; }, &quot;URL&quot;, olurl, aipurl, 1, dialog), 1, 2);
+      Object[] obj = { vc.photo, VCard.imgf[vc.itphoto &lt; 0 || vc.itphoto &gt;= VCard.imgf.length ? 0 : vc.itphoto].toLowerCase() };
+      gp1.add(imgEd(obj, dialog), 1, 0);
+      ObservableList&lt;VCard.Itm&gt; oladr = FXCollections.observableArrayList(vc.adr);
+      int[] aipadr = { vc.padr };
+      String[] m = { &quot;Post office box&quot;, &quot;Extended address (suite number)&quot;, &quot;Street address&quot;,
+                     &quot;Locality (city)&quot;, &quot;Region (state or province)&quot;, &quot;Postal code&quot;, &quot;Country&quot; };
+      gp1.add(listEd(m, &quot;Physical address&quot;, oladr, aipadr, 2, dialog), 1, 1);
+      TextArea taNote = new TextArea(vc.note); taNote.setPrefRowCount(2); taNote.setPrefWidth(250);
+      HBox hb = new HBox(10, new Label(&quot;Note:&quot;), taNote); hb.setAlignment(Pos.CENTER_RIGHT);
+      gp1.add(hb, 0, 3);
+      if (vc.rev != null) {
+        TextField tfd = new TextField(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM).format(vc.rev));
+        tfd.setPrefWidth(300);
+        tfd.setEditable(false); tfd.setFocusTraversable(false);
+        VBox vb = new VBox(3, new Label(&quot;vCard last updated:&quot;), tfd);
+        vb.setAlignment(Pos.TOP_LEFT);
+        gp1.add(vb, 1, 3);
+      }
+      dialog.getDialogPane().setContent(gp1);
+      dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+      Optional&lt;ButtonType&gt; result = dialog.showAndWait();
+      if(result.isPresent() &amp;&amp; result.get() == ButtonType.OK) {
+        bprModified.set(true);
+        vc.fname = cbfname.getValue();
+        for (int i = 0; i &lt; t.length; i++) vc.name[i] = (tf[i].getText() == null ? &quot;&quot; : tf[i].getText());
+        vc.tel.clear(); vc.tel.addAll(oltel);
+        vc.email.clear(); vc.email.addAll(olemail);
+        vc.url.clear(); vc.url.addAll(olurl);
+        vc.adr.clear(); vc.adr.addAll(oladr);
+        vc.ptel = aiptel[0];
+        vc.pemail = aipemail[0];
+        vc.purl = aipurl[0];
+        vc.padr = aipadr[0];
+        vc.bday = (dpbday.getValue() == null ? null : Date.from(dpbday.getValue().atStartOfDay().atZone(ZoneId.systemDefault()).toInstant()));
+        vc.org = tforg.getText();
+        vc.title = tftitle.getText();
+        vc.note = taNote.getText();
+        vc.photo = (byte[]) obj[0];
+        int i = (obj[1] == null ? -1 : Arrays.asList(VCard.imgf).indexOf(((String) obj[1]).toUpperCase()));
+        vc.itphoto = (i &lt; 0 ? 0 : i);
+        vc.obj = null;
+        vc.rev = new Date();
+        if (vr &gt; 0) data.add(vc);
+        else data.set(dindex, vc);
+        index = sortedList.indexOf(vc);
+        tableView.getSelectionModel().select(index);
+        tableView.scrollTo(index);
+        tableView.refresh();
+      }
+    }
+  }
+
+  void view() {
+    int index = tableView.getSelectionModel().getSelectedIndex();
+    if (index &gt;= 0) {
+      VCard vc = sortedList.get(index);
+      Dialog&lt;ButtonType&gt; dialog = new Dialog&lt;&gt;();
+      dialog.initOwner(stage);
+      dialog.initStyle(StageStyle.UTILITY);
+      dialog.setResizable(true);
+      dialog.setTitle(vc.fname);
+      dialog.setHeaderText(null);
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      try { vc.write(out, charset, csSpecify); } catch (Exception ex) { ex.printStackTrace(); }
+      TextArea ta = new TextArea(new String(out.toByteArray(), charset));
+      VBox.setVgrow(ta, Priority.ALWAYS);
+      ta.setEditable(false);
+      ta.setFont(Font.font(&quot;Monospaced&quot;, Font.getDefault().getSize() + 2));
+      Button bt = new Button(&quot;Save&quot;);
+      bt.setOnAction(ae -&gt; {
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle(&quot;Save (&quot; + charset.name()+&quot;)&quot;);
+        fileChooser.setInitialDirectory(appRootPath.isDirectory() ? appRootPath : null);
+        fileChooser.setInitialFileName(&quot;vCard.vcf&quot;);
+        File saveFile = fileChooser.showSaveDialog(dialog.getDialogPane().getScene().getWindow());
+        if (saveFile != null) {
+          appRootPath = saveFile.getParentFile();
+          try {
+            Files.write(saveFile.toPath(), out.toByteArray());
+          } catch (Exception ex) { alert(Alert.AlertType.ERROR, ex.toString(), dialog.getDialogPane().getScene().getWindow(), ButtonType.OK); }
+        }
+      });
+      HBox hb = new HBox(bt); hb.setPadding(new Insets(8));
+      VBox vb = new VBox(hb, ta); vb.setPadding(Insets.EMPTY);
+      dialog.getDialogPane().setContent(vb);
+      dialog.getDialogPane().setPrefSize(800, 600);
+      dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK);
+      Platform.runLater(() -&gt; ta.requestFocus());
+      dialog.showAndWait();
+    }
+  }
+
+  void delete() {
+    int index = tableView.getSelectionModel().getSelectedIndex();
+    if (index &gt;= 0) { data.remove(sortedList.getSourceIndex(index)); bprModified.set(true); }
+  }
+
+  Pane imgEd(Object[] obj, Dialog&lt;ButtonType&gt; dlg) {
+    Button bt1 = new Button(&quot;Load&quot;);    bt1.setMinWidth(70);
+    Button bt2 = new Button(&quot;Remove&quot;);  bt2.setMinWidth(70);
+    Button bt3 = new Button(&quot;Extract&quot;); bt3.setMinWidth(70);
+    NumberFormat nf = NumberFormat.getIntegerInstance();
+    Label lpi = new Label();
+    Image[] img = { crImg((byte[]) obj[0]) };
+    HBox hb = new HBox(6, bt1, bt2, bt3); hb.setAlignment(Pos.CENTER);
+    VBox vb = new VBox(6, new Region(), lpi, hb); vb.setAlignment(Pos.CENTER);
+    Runnable rn = () -&gt; {
+      vb.getChildren().set(0, crPict(img[0], 1));
+      lpi.setText(img[0] == null ? &quot;&quot; : (String) obj[1] + &quot; / &quot; + nf.format(img[0].getWidth()) + &quot; x &quot; + nf.format(img[0].getHeight()) + &quot; / &quot; + nf.format(((byte[]) obj[0]).length) + &quot; Bt&quot;);
+    };
+    rn.run();
+    bt1.setOnAction(e -&gt; {
+      FileChooser fileChooser = new FileChooser();
+      fileChooser.getExtensionFilters().addAll(efImgs, efAll);
+      fileChooser.setInitialDirectory(appRootPath.isDirectory() ? appRootPath : null);
+      File openFile = fileChooser.showOpenDialog(dlg.getDialogPane().getScene().getWindow());
+      if (openFile != null) {
+        appRootPath = openFile.getParentFile();
+        String name = openFile.getName();
+        int i = name.lastIndexOf(&apos;.&apos;);
+        String ext = (i &lt; 0 ? &quot;&quot; : name.substring(i + 1).toLowerCase()), msg = null;
+        if (i &lt; 0 || efImgs.getExtensions().indexOf(&quot;*.&quot; + ext) &lt; 0) msg = &quot;Unknown format&quot;;
+        else if (openFile.length() &gt; 100_000L) msg = &quot;File is too large&quot;;
+        else {
+          try {
+            byte[] bytes = Files.readAllBytes(openFile.toPath());
+            Image im = crImg(bytes);
+            if (im == null) msg = &quot;No image file&quot;;
+            else {
+              if (ext.equals(&quot;jpg&quot;)) ext = &quot;jpeg&quot;;
+              obj[0] = bytes; obj[1] = ext; img[0] = im;
+              rn.run();
+            }
+          } catch (Exception ex) { msg = ex.toString(); }
+        }
+        if (msg != null) alert(Alert.AlertType.ERROR, msg, dlg.getDialogPane().getScene().getWindow(), ButtonType.OK);
+      }
+    });
+    bt2.setOnAction(e -&gt; {
+      if (obj[0] != null) {
+        obj[0] = obj[1] = img[0] = null;
+        rn.run();
+      }
+    });
+    bt3.setOnAction(e -&gt; {
+      if (obj[0] != null) {
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setInitialDirectory(appRootPath.isDirectory() ? appRootPath : null);
+        String ext = ((String) obj[1]);
+        fileChooser.setInitialFileName(&quot;image.&quot; + (ext.equals(&quot;jpeg&quot;) ? &quot;jpg&quot; : ext));
+        File saveFile = fileChooser.showSaveDialog(dlg.getDialogPane().getScene().getWindow());
+        if (saveFile != null) {
+          appRootPath = saveFile.getParentFile();
+          try {
+            Files.write(saveFile.toPath(), (byte[]) obj[0]);
+          } catch (Exception ex) { alert(Alert.AlertType.ERROR, ex.toString(), dlg.getDialogPane().getScene().getWindow(), ButtonType.OK); }
+        }
+      }
+    });
+    return vb;
+  }
+
+  ButtonType alert(Alert.AlertType type, String cont, Window window, ButtonType... bt) {
+    Alert alert = new Alert(type, cont, bt);
+    alert.initOwner(window);
+    alert.initStyle(StageStyle.UTILITY);
+    alert.setHeaderText(null);
+    Optional&lt;ButtonType&gt; result = alert.showAndWait();
+    return (result.isPresent() ? result.get() : null);
+  }
+
+  Node listEd(String[] tl1, String tl2, ObservableList&lt;VCard.Itm&gt; olist, int[] p, int vr, Dialog&lt;ButtonType&gt; dlg) {
+    Button bt1 = new Button(&quot;Add&quot;);    bt1.setMinWidth(70);
+    Button bt2 = new Button(&quot;Edit&quot;);   bt2.setMinWidth(70);
+    Button bt3 = new Button(&quot;Remove&quot;); bt3.setMinWidth(70);
+    Button bt4 = new Button(null, shp(12, 12, &quot;M0 7L6 0L12 7H8V12H4V7Z&quot;)); bt4.setMinWidth(32);
+    Button bt5 = new Button(null, shp(12, 12, &quot;M0 5L6 12L12 5H8V0H4V5Z&quot;)); bt5.setMinWidth(32);
+    Font fontBold = Font.font(Font.getDefault().getFamily(), FontWeight.BOLD, Font.getDefault().getSize() + 1);
+    Function&lt;String[], String&gt; jn = (t) -&gt; {
+      String s = Arrays.stream(t).reduce(&quot;&quot;, (x, y) -&gt; x + (y == null || y.isBlank() ? &quot;&quot; : &quot;, &quot; + y.replace(&apos;\n&apos;, &apos; &apos;)));
+      return (s.length() &lt; 2 ? &quot;&quot; : s.substring(2));
+    };
+    ListView&lt;VCard.Itm&gt; listView = new ListView&lt;&gt;(olist);
+    listView.setCellFactory(c -&gt; {
+      ListCell&lt;VCard.Itm&gt; cell = new ListCell&lt;&gt;() {
+        @Override
+        public void updateItem(VCard.Itm item, boolean empty) {
+          super.updateItem(item, empty);
+          if (empty || item == null) setGraphic(null);
+          else {
+            Label l4 = new Label(item.note.replace(&apos;\n&apos;, &apos; &apos;));
+            Label l3 = new Label(p[0] == getIndex() ? &quot;p&quot; : &quot;&quot;);
+            if (vr == 2) {
+              Label l1 = new Label(jn.apply((String[])item.value));  l1.setFont(fontBold); l1.setMinWidth(140); l1.setMaxWidth(140);
+              Label l2 = new Label(VCard.tadr[(item.idl &lt; 0 || item.idl &gt;= VCard.tadr.length ? 0 : item.idl)]); l2.setMinWidth(40); l2.setMaxWidth(40);
+              setGraphic(new VBox(new HBox(10, l1, l2, l3), l4));
+            } else if (vr == 0) {
+              Label l1 = new Label((String)item.value);  l1.setFont(fontBold); l1.setMinWidth(140); l1.setMaxWidth(140);
+              Label l2 = new Label(VCard.ttel[(item.idl &lt; 0 || item.idl &gt;= VCard.ttel.length ? 0 : item.idl)]); l2.setMinWidth(40); l2.setMaxWidth(40);
+              setGraphic(new VBox(new HBox(10, l1, l2, l3), l4));
+            } else {  // vr == 1
+              Label l1 = new Label((String)item.value);  l1.setFont(fontBold); l1.setMinWidth(190); l1.setMaxWidth(190);
+              setGraphic(new VBox(new HBox(10, l1, l3), l4));
+            }
+          }
+        }
+      };
+      cell.setOnMouseClicked(me -&gt; {
+        if (!cell.isEmpty() &amp;&amp; me.getButton() == MouseButton.PRIMARY &amp;&amp; me.getClickCount() == 2) bt2.fire();
+      });
+      return cell;
+    });
+
+    EventHandler&lt;ActionEvent&gt; ae1 = e -&gt; {
+      int index = listView.getSelectionModel().getSelectedIndex();
+      if (e.getTarget() == bt1 || index &gt;= 0) {
+        if (e.getTarget() == bt1) index = -1;
+        int ind;
+        boolean b;
+        String note;
+        String[] m;
+        if (index &lt; 0) { Arrays.fill(m = new String[tl1.length], &quot;&quot;); ind = 0; note = &quot;&quot;; b = false; }
+        else {
+          if (vr == 2) {
+            m = Arrays.copyOf((String[])olist.get(index).value, tl1.length);
+          } else {
+            m = new String[] { (String)olist.get(index).value };
+          }
+          ind = olist.get(index).idl;
+          note = olist.get(index).note;
+          b = (index == p[0]);
+        }
+        Dialog&lt;ButtonType&gt; dialog = new Dialog&lt;&gt;();
+        dialog.initOwner(dlg.getDialogPane().getScene().getWindow());
+        dialog.initStyle(StageStyle.UTILITY);
+        dialog.setTitle(index &lt; 0 ? &quot;New&quot; : jn.apply(m));
+        dialog.setHeaderText(null);
+        GridPane gridPane = new GridPane();
+        gridPane.setHgap(10);
+        gridPane.setVgap(6);
+        TextInputControl[] tf = new TextInputControl[m.length];
+        int r = 0;
+        for (int i = 0; i &lt; m.length; i++) {
+          Label l = new Label(tl1[i] + &quot;:&quot;);
+          if (i == 2) { tf[i] = new TextArea(m[i]); ((TextArea)tf[i]).setPrefRowCount(2); }
+          else tf[i] = new TextField(m[i]);
+          gridPane.addRow(r++, l, tf[i]); GridPane.setHalignment(l, HPos.RIGHT); tf[i].setPrefWidth(200);
+        }
+        String[] t = (vr == 0 ? VCard.ttel : VCard.tadr);
+        ComboBox&lt;String&gt; comboBox = new ComboBox&lt;&gt;(FXCollections.observableArrayList(t)); comboBox.setPrefWidth(200);
+        comboBox.setValue(t[(ind &lt; 0 || ind &gt;= t.length ? 0 : ind)]);
+        Label l1, l2, l3;
+        if (vr != 1) {
+          gridPane.addRow(r++, l1 = new Label(&quot;Type:&quot;), comboBox); GridPane.setHalignment(l1, HPos.RIGHT);
+        }
+        CheckBox checkBox = new CheckBox();
+        checkBox.setSelected(b);
+        gridPane.addRow(r++, l2 = new Label(&quot;Preferred:&quot;), checkBox); GridPane.setHalignment(l2, HPos.RIGHT);
+        TextArea ta = new TextArea(note); ta.setPrefWidth(200); ta.setPrefRowCount(2);
+        gridPane.addRow(r, l3 = new Label(&quot;Note:&quot;), ta); GridPane.setHalignment(l3, HPos.RIGHT);
+        dialog.getDialogPane().setContent(gridPane);
+        Platform.runLater(() -&gt; tf[0].requestFocus());
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        Optional&lt;ButtonType&gt; result = dialog.showAndWait();
+        if(result.isPresent() &amp;&amp; result.get() == ButtonType.OK) {
+          for (int i = 0; i &lt; m.length; i++) m[i] = (tf[i].getText() == null ? &quot;&quot; : tf[i].getText());
+          if (index &lt; 0) { olist.add(null); index = olist.size() - 1; }
+          int intg = (vr == 1 ? -1 : comboBox.getItems().indexOf(comboBox.getValue()));
+          VCard.Itm itm;
+          if (vr == 2) itm = new VCard.Itm(&quot;&quot;, intg, m, ta.getText());
+          else         itm = new VCard.Itm(&quot;&quot;, intg, tf[0].getText(), ta.getText());
+          olist.set(index, itm);
+          if (checkBox.isSelected()) p[0] = index;
+          else if (index == p[0]) p[0] = -1;
+          listView.getSelectionModel().select(index);
+          listView.scrollTo(index);
+          listView.refresh();
+        }
+      }
+    };
+    bt1.setOnAction(ae1);
+    bt2.setOnAction(ae1);
+    bt3.setOnAction(e -&gt; {
+      int index = listView.getSelectionModel().getSelectedIndex();
+      if (index &gt;= 0) {
+        olist.remove(index);
+        if (index == p[0]) p[0] = -1;
+        else if (index &lt; p[0]) p[0]--;
+      }
+    });
+    EventHandler&lt;ActionEvent&gt; ae2 = e -&gt; {
+      int index = listView.getSelectionModel().getSelectedIndex();
+      if ((e.getTarget() == bt4 &amp;&amp; index &gt; 0 &amp;&amp; olist.size() &gt; 1) ||
+          (e.getTarget() != bt4 &amp;&amp; index &gt;= 0 &amp;&amp; index &lt; olist.size() - 1)) {
+        int newIndex = (e.getTarget() == bt4 ? index - 1 : index + 1);
+        olist.set(index, olist.set(newIndex, olist.get(index)));
+        if (newIndex == p[0]) p[0] = index;
+        else if (index == p[0]) p[0] = newIndex;
+        listView.getSelectionModel().select(newIndex);
+        listView.scrollTo(newIndex);
+      }
+    };
+    bt4.setOnAction(ae2);
+    bt5.setOnAction(ae2);
+    listView.setOnKeyPressed(ke -&gt; {
+      if (ke.getCode() == KeyCode.ENTER) bt2.fire();
+      else if (ke.getCode() == KeyCode.ESCAPE) Event.fireEvent(dlg.getDialogPane(), ke);
+    });
+    listView.setPrefSize(240, 120);
+    listView.getSelectionModel().selectFirst();
+    return new VBox(3, new Label(tl2 + &quot;:&quot;), new HBox(10, listView, new VBox(6, bt1, bt2, bt3, new HBox(6, bt4, bt5))));
+  }
+
+  Canvas shp(int w, int h, String p) {
+    Canvas canvas = new Canvas(w, h);
+    GraphicsContext gc = canvas.getGraphicsContext2D();
+    gc.setFill(Color.grayRgb(87));
+    gc.appendSVGPath(p);
+    gc.fill();
+    return canvas;
+  }
+
+  ObservableList&lt;String&gt; getOblCharset() {
+    if (oblCharset == null) {
+      oblCharset = FXCollections.observableArrayList(Charset.defaultCharset().name(), StandardCharsets.UTF_8.name());
+      oblCharset.addAll(Charset.availableCharsets().keySet());
+    }
+    return oblCharset;
+  }
+
+  void options() {
+    Dialog&lt;ButtonType&gt; dialog = new Dialog&lt;&gt;();
+    dialog.initOwner(stage);
+    dialog.initStyle(StageStyle.UTILITY);
+    dialog.setTitle(&quot;Options&quot;);
+    dialog.setHeaderText(null);
+    ComboBox&lt;String&gt; comboBox = new ComboBox&lt;&gt;(getOblCharset()); comboBox.setPrefWidth(150);
+    comboBox.setValue(charset.name());
+    ObservableList&lt;String&gt; oblCharset2 = FXCollections.observableArrayList(&quot;Charset + QP&quot;, &quot;Specified&quot;, &quot;Not specified&quot;);
+    ComboBox&lt;String&gt; comboBox2 = new ComboBox&lt;&gt;(oblCharset2); comboBox2.setPrefWidth(150);
+    comboBox2.setValue(oblCharset2.get(csSpecify));
+    GridPane gridPane = new GridPane();
+    gridPane.setHgap(10);
+    gridPane.setVgap(6);
+    Label l1, l2;
+    gridPane.addRow(0, l1 = new Label(&quot;Text charset:&quot;), comboBox); GridPane.setHalignment(l1, HPos.RIGHT);
+    gridPane.addRow(1, l2 = new Label(&quot;Specify charset:&quot;), comboBox2); GridPane.setHalignment(l2, HPos.RIGHT);
+    dialog.getDialogPane().setContent(gridPane);
+    dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+    Platform.runLater(() -&gt; comboBox.requestFocus());
+    Optional&lt;ButtonType&gt; result = dialog.showAndWait();
+    if(result.isPresent() &amp;&amp; result.get() == ButtonType.OK) {
+      try { charset = Charset.forName(comboBox.getValue()); } catch (Exception e) { }
+      csSpecify = oblCharset2.indexOf(comboBox2.getValue());
+      lsb2.setText(charset.name() + (csSpecify == 0 ? &quot;&quot; : &quot; / &quot; + (csSpecify == 1 ? &quot;sp&quot; : &quot;nsp&quot;)));
+    }
+  }
+
+  Node search() {
+    TextField tf = new TextField(); tf.setPrefWidth(200);
+    Button bt1 = new Button(null, shp(8, 4, &quot;M0 0 H8 L4 4 Z&quot;)),
+           bt2 = new Button(null, shp(8, 4, &quot;M0 4 H8 L4 0 Z&quot;));
+    bt1.setDisable(true); bt2.setDisable(true);
+    tf.setOnKeyPressed(ke -&gt; {
+      if (ke.getCode() == KeyCode.ENTER) (ke.isShiftDown() ? bt2 : bt1).fire();
+    });
+    tf.textProperty().addListener((v, o, n) -&gt; {
+      boolean b = tf.getText().isBlank();
+      bt1.setDisable(b); bt2.setDisable(b);
+    });
+    EventHandler&lt;ActionEvent&gt; ae = e -&gt; {
+      int index = tableView.getSelectionModel().getSelectedIndex();
+      if (index &gt;= 0) {
+        int ind = index;
+        VCard vc = null;
+        do {
+          index += (e.getTarget() == bt1 ? 1 : -1);
+          if (index &lt; 0) index = sortedList.size() - 1;
+          else if (index &gt;= sortedList.size()) index = 0;
+          if (ind == index) break;
+          vc = sortedList.get(index);
+        } while (!vc.contains(tf.getText()));
+        if (ind != index) {
+          tableView.getSelectionModel().select(index);
+          tableView.scrollTo(index);
+        }
+      }
+    };
+    bt1.setOnAction(ae);
+    bt2.setOnAction(ae);
+    HBox hb = new HBox(8, new Label(&quot;Search:&quot;), new HBox(tf, bt1, bt2));
+    hb.setAlignment(Pos.CENTER);
+    hb.setPadding(new Insets(4, 15, 4, 0));
+    return hb;
+  }
+
+}
+</pre>
+</body></html>
