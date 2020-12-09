@@ -9,6 +9,13 @@
         <xhtml:link rel="alternate" hreflang="en" href="https://yumberc.github.io"/>
     </url>
     <url>
+        <loc>http://yumberc.github.io/VCardEdit/VCardEdit.html</loc>
+        <image:image>
+            <image:loc>http://yumberc.github.io/VCardEdit/VCardEdit.jpg</image:loc>
+            <image:caption>vCard vcf Editor</image:caption>
+        </image:image>
+    </url>
+    <url>
         <loc>http://yumberc.github.io/ClassInfo/ClassInfo.html</loc>
         <image:image>
             <image:loc>http://yumberc.github.io/ClassInfo/ClassInfo.jpg</image:loc>
