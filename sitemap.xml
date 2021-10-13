@@ -23,6 +23,13 @@
         </image:image>
     </url>
     <url>
+        <loc>http://yumberc.github.io/SmPDF/SmPDF.html</loc>
+        <image:image>
+            <image:loc>http://yumberc.github.io/SmPDF/SmPDF.jpg</image:loc>
+            <image:caption>Simple PDF Creator in Java</image:caption>
+        </image:image>
+    </url>
+    <url>
         <loc>https://yumberc.github.io/FontStore/FontStore.html</loc>
         <image:image>
             <image:loc>https://yumberc.github.io/FontStore/FontStore.jpg</image:loc>
