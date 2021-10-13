@@ -1,0 +1,663 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, PDF, Creator, Download, Source, Free">
+<meta name="keywords" content="Java, PDF, Creator, Download, Source, Free">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simple PDF Creator in Java</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>Simple PDF Creator in Java</p>
+<a href="SmPDF.jpg"><img src="SmPDF.jpg" width="106" height="150" alt="Simple PDF Creator in Java" title="Simple PDF Creator in Java"></a>
+<p></p>
+<pre>
+----------------- SmPDF.java -------------------
+
+import java.io.*;
+import java.nio.charset.*;
+import java.util.*;
+import java.util.AbstractMap.*;
+import java.text.*;
+
+public class SmPDF {
+
+  public static void main(String argv[]) { new SmPDF().demo(); }
+
+  static final float[] A4 = { 595.28f, 841.89f }, A3 = { 841.89f, 1190.55f }, LETTER = { 612f, 792f }, LEGAL = { 612f, 1008f };
+  static final boolean PORTRAIT = true, LANDSCAPE = false;
+  static final int TIMES_ROMAN = 0, TIMES_BOLD = 1, TIMES_ITALIC = 2, TIMES_BOLDITALIC = 3,
+    HELVETICA = 4, HELVETICA_BOLD = 5, HELVETICA_OBLIQUE = 6, HELVETICA_BOLDOBLIQUE = 7,
+    COURIER = 8, COURIER_BOLD = 9, COURIER_OBLIQUE = 10, COURIER_BOLDOBLIQUE = 11,
+    SYMBOL = 12, ZAPFDINGBATS = 13;
+  static final String[] stdFonts = { /*0*/ &quot;Times-Roman&quot;, /*1*/ &quot;Times-Bold&quot;, /*2*/ &quot;Times-Italic&quot;, /*3*/ &quot;Times-BoldItalic&quot;,
+    /*4*/ &quot;Helvetica&quot;, /*5*/ &quot;Helvetica-Bold&quot;, /*6*/ &quot;Helvetica-Oblique&quot;, /*7*/ &quot;Helvetica-BoldOblique&quot;,
+    /*8*/ &quot;Courier&quot;, /*9*/ &quot;Courier-Bold&quot;, /*10*/ &quot;Courier-Oblique&quot;, /*11*/ &quot;Courier-BoldOblique&quot;,
+    /*12*/ &quot;Symbol&quot;, /*13*/ &quot;ZapfDingbats&quot; };
+
+  String CR = &quot;\r\n&quot;, indt = &quot;  &quot;;
+  DecimalFormat df;
+  OutputStream out;
+  int pos = 0;
+  List&lt;Integer&gt; lstObj = new ArrayList&lt;&gt;();
+  List&lt;Page&gt; pages = new ArrayList&lt;&gt;();
+  List&lt;Map.Entry&lt;File, Boolean&gt;&gt; dImg = new ArrayList&lt;&gt;();
+  List&lt;Map.Entry&lt;Object, Set&lt;Integer&gt;&gt;&gt; dFnt = new ArrayList&lt;&gt;();
+  Map&lt;Integer, Integer&gt; dChr = new HashMap&lt;&gt;();
+
+  SmPDF() {
+    df = (DecimalFormat) NumberFormat.getInstance(Locale.ROOT);
+    DecimalFormatSymbols symbols = new DecimalFormatSymbols();
+    symbols.setDecimalSeparator(&apos;.&apos;);
+    df.setDecimalFormatSymbols(symbols);
+    df.setGroupingUsed(false);
+    df.setMaximumFractionDigits(2);
+  }
+
+  void demo() {
+    Page page = new Page(A4, PORTRAIT);
+    int bg = setImage(new File(&quot;bg.jpg&quot;));
+    int fnt = setFont(new File(&quot;RampartOne-Regular.ttf&quot;));
+    //page.drawImage(bg, page.w, page.h, 0f, 0f);
+    //page.drawString(fnt, &quot;PDF&quot;, 150f, 150f, 600f);
+    for (int i = 0; i &lt; stdFonts.length; i++) {
+      page.drawString(setFont(i), stdFonts[i], 24f, 100f, 450 - (i * 24));
+    }
+    page.addContent(&quot;q [3 4] 5 d 0 0 1 RG 70 100 450 400 re S Q&quot;);
+    addPage(page);
+    write(new File(&quot;demo.pdf&quot;));
+  }
+
+  void write(File fl) {
+    try (OutputStream os = new FileOutputStream(fl)) {
+       write(os);
+    } catch (Exception ex) { throw new RuntimeException(ex); }
+  }
+
+  void write(OutputStream out) {
+    if(pages.size() == 0) throw new RuntimeException(&quot;No pages&quot;);
+    this.out = out;
+    write(&quot;%PDF-1.4&quot;, CR, &quot;%\u00E2\u00E3\u00CF\u00D3&quot;, CR);
+    int ctlg = obj(null, &quot;/Type /Catalog&quot;, &quot;/Pages &quot; + (lstObj.size() + 2) + &quot; 0 R&quot;);
+    int lCont = 0;
+    StringBuilder kids = new StringBuilder();
+    for (int i = 0; i &lt; pages.size(); i++) {
+      if (i &gt; 0) kids.append(&apos; &apos;);
+      kids.append(3 + i * 2).append(&quot; 0 R&quot;);
+      if (!pages.get(i).isContEmpty()) lCont++;
+    }
+    int pg = obj(null, &quot;/Type /Pages&quot;, &quot;/Kids [&quot; + kids.toString() + &quot;]&quot;, &quot;/Count &quot; + pages.size());
+    int[] alFnt = new int[dFnt.size()]; 
+    int lFnt = 0;
+    for (int i = 0; i &lt; dFnt.size(); i++) {
+      alFnt[i] = lFnt;
+      Map.Entry&lt;Object, Set&lt;Integer&gt;&gt; entry = dFnt.get(i);
+      if (entry.getValue().size() &gt; 0) {
+        lFnt += (entry.getKey() instanceof String ? 1 : 5);
+      }
+    }
+    int[] alImg = new int[dImg.size()]; 
+    int lImg = 0;
+    for (int i = 0; i &lt; dImg.size(); i++) {
+      alImg[i] = lImg;
+      Map.Entry&lt;File, Boolean&gt; entry = dImg.get(i);
+      if (entry.getValue().booleanValue()) lImg++;
+    }
+    int offCont = pg + 1 + (pages.size() * 2);
+    int offFnt = offCont + lCont;
+    int offImg = offFnt + lFnt;
+    int offUni = offImg + lImg;
+    for (Page page : pages) {
+      obj(null,
+        &quot;/Type /Page&quot;,
+        &quot;/Parent &quot; + pg + &quot; 0 R&quot;,
+        &quot;/Resources &quot; + (lstObj.size() + 2) + &quot; 0 R&quot;,
+        (page.isContEmpty() ? null : &quot;/Contents &quot;+ (offCont++) +&quot; 0 R&quot;),
+        &quot;/MediaBox [0 0 &quot; + ff(page.w, page.h) + &quot;]&quot;);
+      String sFnt = null, sImg = null;
+      if (page.fnt.size() &gt; 0) {
+        Integer[] arr = page.fnt.toArray(new Integer[0]);
+        Arrays.sort(arr);
+        StringBuilder sb = new StringBuilder(&quot;/Font &lt;&lt;&quot;);
+        for (int n, i = 0; i &lt; arr.length; i++) {
+          if (i &gt; 0) sb.append(&apos; &apos;);
+          n = arr[i].intValue();
+          sb.append(&quot;/F&quot;).append(n + 1).append(&apos; &apos;).append(offFnt + alFnt[n]).append(&quot; 0 R&quot;);
+        }
+        sFnt = sb.append(&quot;&gt;&gt;&quot;).toString();
+      }
+      if (page.img.size() &gt; 0) {
+        Integer[] arr = page.img.toArray(new Integer[0]);
+        Arrays.sort(arr);
+        StringBuilder sb = new StringBuilder(&quot;/XObject &lt;&lt;&quot;);
+        for (int n, i = 0; i &lt; arr.length; i++) {
+          if (i &gt; 0) sb.append(&apos; &apos;);
+          n = arr[i].intValue();
+          sb.append(&quot;/Im&quot;).append(n + 1).append(&apos; &apos;).append(offImg + alImg[n]).append(&quot; 0 R&quot;);
+        }
+        sImg = sb.append(&quot;&gt;&gt;&quot;).toString();
+      }
+      obj(null, sFnt, sImg);
+    }
+//Contents
+    for (Page page : pages) {
+      if (!page.isContEmpty()) {
+        obj(page.cont.toString().getBytes(StandardCharsets.ISO_8859_1));
+      }
+    }
+//Fonts
+    for (Map.Entry&lt;Object, Set&lt;Integer&gt;&gt; ob : dFnt) {
+      if (ob.getValue().size() == 0) continue;
+      if (ob.getKey() instanceof String) {
+        obj(null,
+          &quot;/Type /Font&quot;,
+          &quot;/Subtype /Type1&quot;,
+          &quot;/BaseFont /&quot; + (String) ob.getKey());
+      } else if (ob.getKey() instanceof File) {
+        File fl = (File) ob.getKey();
+        try (RandomAccessFile raf = new RandomAccessFile(fl, &quot;r&quot;)) {
+          Fnt fnt = new Fnt(raf);
+          String fname = &quot;/ABCDEF+&quot; + dec(fnt.name);
+          obj(null,
+            &quot;/Type /Font&quot;,
+            &quot;/Subtype /Type0&quot;,
+            &quot;/BaseFont &quot; + fname,
+            &quot;/Encoding /Identity-H&quot;,
+            &quot;/DescendantFonts [&quot; + (lstObj.size() + 2) + &quot; 0 R]&quot;,
+            &quot;/ToUnicode &quot; + offUni + &quot; 0 R&quot;);
+          double k = (fnt.unitsPerEm &lt; 16 ? 1 : 1000d / fnt.unitsPerEm);
+          Integer[] arr = ob.getValue().toArray(new Integer[0]);
+          Arrays.sort(arr, (t1, t2) -&gt; dChr.get(t1).compareTo(dChr.get(t2)));
+          StringBuilder sb = new StringBuilder(&quot;[&quot;);
+          for (int nextcid = -1, i = 0; i &lt; arr.length; i++) {
+            int cid = dChr.get(arr[i]).intValue();
+            if (nextcid != cid) {
+              if (i &gt; 0) sb.append(&quot;] &quot;);
+              sb.append(cid).append(&quot; [&quot;);
+            } else sb.append(&apos; &apos;);
+            sb.append((int) (fnt.uni2width(arr[i].intValue()) * k));
+            nextcid = cid + 1;
+          }
+          sb.append(&quot;]]&quot;);
+          obj(null,
+            &quot;/Type /Font&quot;,
+            &quot;/Subtype /CIDFontType2&quot;,
+            &quot;/CIDSystemInfo &lt;&lt;/Supplement 0 /Registry (Adobe) /Ordering (Identity)&gt;&gt;&quot;,
+            &quot;/BaseFont &quot; + fname,
+            &quot;/FontDescriptor &quot; + (lstObj.size() + 2) + &quot; 0 R&quot;,
+            &quot;/CIDToGIDMap &quot; + (lstObj.size() + 3) + &quot; 0 R&quot;,
+            &quot;/W &quot; + sb.toString());
+          int ascent = (int) (fnt.ascender * k);
+          int descent = (int) (fnt.descender * k);
+          int xMin = (int) (fnt.xMin * k);
+          int xMax = (int) (fnt.xMax * k);
+          obj(null,
+            &quot;/Type /FontDescriptor&quot;,
+            &quot;/FontFile2 &quot; + (lstObj.size() + 3) + &quot; 0 R&quot;,
+            &quot;/FontName &quot; + fname,
+            &quot;/Ascent &quot;+ ascent,
+            &quot;/Descent &quot;+ descent,
+            &quot;/CapHeight &quot; + (int) (ascent * .8),
+            &quot;/FontBBox [&quot; + xMin + &quot; &quot; + descent + &quot; &quot; + xMax + &quot; &quot; + ascent + &quot;]&quot;,
+            &quot;/StemV &quot; + (int) ((xMax - xMin) * .1),
+            &quot;/Flags 32&quot;,
+            &quot;/ItalicAngle 0&quot;);
+          byte[] btgl = new byte[dChr.size() * 2];
+          int cid, gid;
+          for (Integer ich : ob.getValue()) {
+            gid = fnt.uni2gid(ich.intValue());
+            cid = dChr.get(ich).intValue();
+            btgl[cid * 2] = (byte) (gid &gt;&gt; 8);
+            btgl[cid * 2 + 1] = (byte) gid;
+          }
+          obj(btgl);
+          obj(raf);
+        } catch (Exception ex) { throw new RuntimeException(ex); }
+      } else throw new RuntimeException(ob.getKey().getClass().getName() + &quot; expected String or File&quot;);
+    }
+//XObject
+    for (Map.Entry&lt;File, Boolean&gt; entry : dImg) {
+      if (!entry.getValue().booleanValue()) continue;
+      try (RandomAccessFile raf = new RandomAccessFile(entry.getKey(), &quot;r&quot;)) {
+        int[] size = getPictSize(raf);
+        obj(raf,
+          &quot;/Type /XObject&quot;,
+          &quot;/Subtype /Image&quot;,
+          &quot;/Width &quot; + size[0],
+          &quot;/Height &quot; + size[1],
+          &quot;/BitsPerComponent 8&quot;,
+          &quot;/ColorSpace /DeviceRGB&quot;,
+          &quot;/Interpolate false&quot;,
+          &quot;/Filter /DCTDecode&quot;);
+      } catch (Exception ex) { throw new RuntimeException(ex); }
+    }
+//CMap
+    if (dChr.size() &gt; 0) {
+      obj(dict());
+    }
+    int info = obj(null, &quot;/Creator (SmPDF)&quot;);
+    int xpos = pos;
+    write(&quot;xref&quot;, CR, &quot;0 &quot;, String.valueOf(lstObj.size() + 1), CR);
+    String p = &quot;%010d %05d %c&quot; + CR;
+    write(String.format(p, 0, 65535, &apos;f&apos;));
+    for (Integer i : lstObj) {
+      write(String.format(p, i.intValue(), 0, &apos;n&apos;));
+    }
+    write(&quot;trailer &lt;&lt;/Size &quot;, String.valueOf(lstObj.size() + 1), &quot; /Root &quot;, String.valueOf(ctlg), &quot; 0 R /Info &quot;, String.valueOf(info), &quot; 0 R&gt;&gt;&quot;, CR,
+      &quot;startxref&quot;, CR, String.valueOf(xpos), CR, &quot;%%EOF&quot;, CR);
+  }
+
+  void write(String... args) {
+    for (String st : args) write(st.getBytes(StandardCharsets.ISO_8859_1));
+  }
+
+  void write(byte[] bt) {
+    write(bt, 0, bt.length);
+  }
+
+  void write(byte[] bt, int off, int len) {
+    try {
+      out.write(bt, off, len);
+      pos += len;
+    } catch (IOException ex) { throw new RuntimeException(ex); }
+  }
+
+  int obj(Object strm, Object... args) {
+    lstObj.add(Integer.valueOf(pos));
+    StringBuilder sb = new StringBuilder();
+    sb.append(lstObj.size()).append(&quot; 0 obj &lt;&lt;&quot;).append(CR);
+    for(Object s : args) {
+      String str = (String) s;
+      if (str != null &amp;&amp; !str.isEmpty()) sb.append(indt).append(str).append(CR);
+    }
+    if (strm != null) {
+      long length = 0;
+      RandomAccessFile raf = null;
+      if (strm instanceof RandomAccessFile) {
+        raf = (RandomAccessFile) strm;
+        try { length = raf.length(); } catch (IOException ex) { throw new RuntimeException(ex); }
+      } else if (strm instanceof byte[]) {
+        length = ((byte[]) strm).length;
+      } else throw new RuntimeException(strm.getClass().getName() + &quot; expected byte[] or RandomAccessFile&quot;);
+      sb.append(indt).append(&quot;/Length &quot; + length).append(CR);
+      sb.append(&quot;&gt;&gt;&quot;).append(CR);
+      sb.append(&quot;stream&quot;).append(CR);
+      write(sb.toString());
+      sb.setLength(0);
+      if (raf != null) {
+        try {
+          int read;
+          final int BUFFER_SIZE = 512;
+          byte[] buff = new byte[BUFFER_SIZE];
+          raf.seek(0);
+          while ((read = raf.read(buff, 0, BUFFER_SIZE)) &gt;= 0) {
+            write(buff, 0, read);
+          }
+        } catch (IOException ex) { throw new RuntimeException(ex); }
+      } else {
+        write((byte[]) strm);
+      }
+      sb.append(CR).append(&quot;endstream&quot;).append(CR);
+    } else {
+      sb.append(&quot;&gt;&gt; &quot;);
+    }
+    sb.append(&quot;endobj&quot;).append(CR);
+    write(sb.toString());
+    return lstObj.size();
+  }
+
+  int setImage(File fl) {
+    dImg.add(new SimpleEntry&lt;&gt;(fl, Boolean.valueOf(false)));
+    return dImg.size() - 1;
+  }
+
+  int setFont(int n) { return setFont(stdFonts[n]); }
+
+  int setFont(Object ob) {
+    dFnt.add(new SimpleEntry&lt;&gt;(ob, new HashSet&lt;&gt;()));
+    return dFnt.size() - 1;
+  }
+
+  void addPage(Page... args) {
+    for (Page page : args) pages.add(page);
+  }
+
+  String ff(float... args) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i &lt; args.length; i++) {
+      if (i &gt; 0) sb.append(&apos; &apos;);
+      sb.append(df.format(args[i]));
+    }
+    return sb.toString();
+  }
+
+  String dec(String st) {
+    byte[] bf = st.getBytes(StandardCharsets.UTF_8);
+    StringBuilder sb = new StringBuilder();
+    for (int c, i = 0; i &lt; bf.length; i++){
+      c = bf[i] &amp; 0xFF;
+      if (c &lt; 33 || c == 35 || c &gt; 126) sb.append(String.format(&quot;#%02X&quot;, c));
+      else if (c != 0) sb.append((char) c);
+    }
+    return sb.toString();
+  }
+
+  public class Page {
+    float w, h;
+    Set&lt;Integer&gt; img = new HashSet&lt;&gt;();
+    Set&lt;Integer&gt; fnt = new HashSet&lt;&gt;();
+    StringBuilder cont = new StringBuilder();
+
+    Page(float [] arr, boolean orient) {
+      this((orient ? arr[0] : arr[1]), (orient ? arr[1] : arr[0]));
+    }
+
+    Page(float w, float h) {
+      this.w = w;
+      this.h = h;
+    }
+
+    void addContent(String... args) {
+      if (cont.length() &gt; 0) cont.append(CR);
+      for (String st : args) cont.append(st);
+    }
+
+    boolean isContEmpty() {
+      return cont.isEmpty();
+    }
+
+    void drawImage(int image, float w, float h, float x, float y) {
+      if (image &lt; 0 || image &gt;= dImg.size()) throw new RuntimeException(&quot;Image &quot; + image + &quot; not exist&quot;);
+      Integer iimage = Integer.valueOf(image);
+      img.add(iimage);
+      Boolean b = dImg.get(iimage).getValue().booleanValue();
+      if (!b) dImg.get(iimage).setValue(Boolean.valueOf(true));
+      addContent(&quot;q &quot;, ff(w, 0f, 0f, h, x, y), &quot; cm /Im&quot;, String.valueOf(iimage + 1),&quot; Do Q&quot;);
+    }
+
+    void drawString(int font, String st, float size, float x, float y) {
+      if (font &lt; 0 || font &gt;= dFnt.size()) throw new RuntimeException(&quot;Font &quot; + font + &quot; not exist&quot;);
+      Integer ifont = Integer.valueOf(font);
+      Object ofont = dFnt.get(ifont).getKey();
+      Set&lt;Integer&gt; sChr = dFnt.get(ifont).getValue();
+      boolean isFontStd = (ofont instanceof String);
+      fnt.add(ifont);
+      int len = st.length();
+      if (isFontStd &amp;&amp; sChr.size() == 0 &amp;&amp; len &gt; 0) sChr.add(null);
+      addContent(&quot;BT /F&quot;, String.valueOf(font + 1), &quot; &quot;, ff(size), &quot; Tf 1 0 0 1 &quot;, ff(x, y), &quot; Tm &quot;);
+      cont.append(isFontStd ? &apos;(&apos; : &apos;&lt;&apos;);
+      for (int ch, cid = 0, i = 0; i &lt; len; i++) {
+        ch = st.charAt(i);
+        if (isFontStd) {
+          if (ch &gt; 127) throw new RuntimeException(&quot;Standard font supports codes 0-127 found &quot; + ch);
+          if ((ch == &apos;(&apos;|| ch == &apos;)&apos; || ch == &apos;\\&apos;)) cont.append(&apos;\\&apos;);
+          cont.append((char) ch);
+        } else {
+          Integer ich = Integer.valueOf(ch);
+          Integer v = dChr.get(ich);
+          if (v == null) {
+            cid = dChr.size();
+            dChr.put(ich, Integer.valueOf(cid));
+          } else {
+            cid = v.intValue();
+          }
+          sChr.add(ich);
+          cont.append(String.format(&quot;%04X&quot;, cid));
+        }
+      }
+      cont.append(isFontStd ? &apos;)&apos; : &apos;&gt;&apos;).append(&quot; Tj ET&quot;);
+    }
+  }  // End class Page
+
+  int[] getPictSize(RandomAccessFile r) throws IOException {
+    int h = 0, w = 0;
+    byte[] buf = new byte[11];
+    r.seek(0);
+    r.read(buf);
+    if (buf[0] == -1 &amp;&amp; buf[1] == -40 &amp;&amp; buf[2] == -1 &amp;&amp; buf[3] == -32 &amp;&amp;
+        buf[6] == 74 &amp;&amp; buf[7] == 70 &amp;&amp; buf[8] == 73 &amp;&amp; buf[9] == 70 &amp;&amp; buf[10] == 0) {
+      long length = r.length();
+      int blockLength = ((buf[4] &amp; 0xFF) &lt;&lt; 8) + (buf[5] &amp; 0xFF);
+      long blockStart = 4 + blockLength;
+      while(blockStart &lt; length) {
+        r.seek(blockStart);
+        r.read(buf, 0, 4);
+        if(buf[0] != -1) throw new IOException(&quot;JPEG marker search error&quot;);
+        if(buf[1] == -64) {   // 0xFFC0 - Start Of Frame 0 (SOF0) marker
+          r.skipBytes(1);
+          h = read16(r);
+          w = read16(r);
+          break;
+        }
+        blockLength = ((buf[2] &amp; 0xFF) &lt;&lt; 8) + (buf[3] &amp; 0xFF);
+        blockStart += blockLength + 2;
+      }
+    } else throw new IOException(&quot;Only JPEG Image format supported&quot;);
+    if(w &lt;= 0 || h &lt;= 0) throw new IOException(&quot;Picture size is invalid&quot;);
+    return new int[] { w, h };
+  }
+
+  int read16(RandomAccessFile r) throws IOException {
+    int b1 = r.read(), b2 = r.read();
+    if ((b1 | b2) &lt; 0) throw new EOFException();
+    return (b1 &lt;&lt; 8) + b2;
+  }
+
+  byte[] dict() {
+    StringBuilder sb = new StringBuilder(&quot;/CIDInit /ProcSet findresource begin&quot;).append(CR);
+    sb.append(&quot;12 dict begin&quot;).append(CR);
+    sb.append(&quot;begincmap&quot;).append(CR);
+    sb.append(&quot;/CIDSystemInfo &lt;&lt;/Registry (Adobe) /Ordering (UCS) /Supplement 0&gt;&gt; def&quot;).append(CR);
+    sb.append(&quot;/CMapName /Adobe-Identity-UCS def&quot;).append(CR);
+    sb.append(&quot;/CMapType 2 def&quot;).append(CR);
+    sb.append(&quot;1 begincodespacerange&quot;).append(CR);
+    sb.append(&quot;&lt;0000&gt;&lt;FFFF&gt;&quot;).append(CR);
+    sb.append(&quot;endcodespacerange&quot;).append(CR);
+    Integer[] arr = dChr.keySet().toArray(new Integer[0]);
+    Arrays.sort(arr, (t1, t2) -&gt; dChr.get(t1).compareTo(dChr.get(t2)));
+    sb.append(&quot;1 beginbfrange&quot;).append(CR).append(String.format(&quot;&lt;0000&gt; &lt;%04X&gt; [&quot;, arr.length - 1));
+    for (int i = 0; i &lt; arr.length; i++) {
+      if (i &gt; 0) sb.append(&apos; &apos;);
+      sb.append(String.format(&quot;&lt;%04X&gt;&quot;, arr[i].intValue()));
+    }
+    sb.append(&apos;]&apos;).append(CR).append(&quot;endbfrange&quot;).append(CR);
+    sb.append(&quot;endcmap&quot;).append(CR);
+    sb.append(&quot;CMapName currentdict /CMap defineresource pop&quot;).append(CR);
+    sb.append(&quot;end&quot;).append(CR).append(&quot;end&quot;);
+    return sb.toString().getBytes(StandardCharsets.ISO_8859_1);
+  }
+
+  class Fnt {
+    RandomAccessFile r;
+
+    Fnt(RandomAccessFile r) throws IOException {
+      this.r = r;
+      r.seek(0);
+      long sfntVersion = uint32();
+      if (sfntVersion != 0x74727565 &amp;&amp; sfntVersion != 0x00010000) throw new RuntimeException(&quot;Only True Type font format supported&quot;);
+      int numTables = uint16();
+      r.skipBytes(6);
+      String[] tableTag = new String[numTables];
+      long[] offset = new long[numTables];
+      for (int i = 0; i &lt; numTables; i++) {
+        tableTag[i] = tag();
+        r.skipBytes(4);
+        offset[i] = uint32();   // offset32
+        r.skipBytes(4);
+      }
+      boolean glyfTable = false;
+      for (int i = 0; i &lt; numTables; i++) {
+        r.seek(offset[i]);
+        switch (tableTag[i]) {
+          case &quot;glyf&quot; : glyfTable = true; break;
+          case &quot;cmap&quot; : cmap(); break;
+          case &quot;head&quot; : head(); break;
+          case &quot;hhea&quot; : hhea(); break;
+          case &quot;hmtx&quot; : hmtx(); break;
+          case &quot;name&quot; : name(); break;
+        }
+      }
+      if (!glyfTable || advanceWidth == null || advanceWidth.length == 0 || map.size() == 0) throw new RuntimeException(&quot;No required data&quot;);
+    }
+
+    short xMin = 0, xMax = 0;
+    int unitsPerEm = 0;
+
+    void head() throws IOException {
+      r.skipBytes(18);
+      unitsPerEm = uint16();
+      r.skipBytes(16);
+      xMin = int16();
+      r.skipBytes(2);
+      xMax = int16();
+    }
+
+    short ascender = 0, descender = 0;
+    int numberOfHMetrics = 0;
+
+    void hhea() throws IOException {
+      r.skipBytes(4);
+      ascender = int16();   // FWORD
+      descender = int16();  // FWORD
+      r.skipBytes(26);
+      numberOfHMetrics = uint16();
+    }
+
+    int[] advanceWidth;
+
+    void hmtx() throws IOException {
+      advanceWidth = new int[numberOfHMetrics];
+      for (int i = 0; i &lt; numberOfHMetrics; i++) {
+        advanceWidth[i] = uint16();
+        r.skipBytes(2);
+      }
+    }
+
+    String name = &quot;na&quot;;
+
+    void name() throws IOException {
+      long startOfTable = r.getFilePointer();
+      r.skipBytes(2);
+      int count = uint16();
+      int storageOffset = uint16(); // offset16
+      int platformID, encodingID, nameID, length, stringOffset;
+      for (int i = 0; i &lt; count; i++) {
+        platformID = uint16();
+        encodingID = uint16();
+        r.skipBytes(2);
+        nameID = uint16();
+        length = uint16();
+        stringOffset = uint16();  // offset16
+        if (nameID == 4) {  // fullName
+          r.seek(startOfTable + storageOffset + stringOffset);
+          byte[] buf = readBytes(length);
+          if (platformID == 0 || (platformID == 3 &amp;&amp; (encodingID == 1 || encodingID == 10))) {  // Unicode
+            name = new String(buf, StandardCharsets.UTF_16);
+          } else {
+            name = new String(buf, StandardCharsets.ISO_8859_1);
+          }
+        }
+      }
+    }
+
+    Map&lt;Integer, Integer&gt; map = new HashMap&lt;&gt;();
+
+    void cmap() throws IOException {
+      long startOfTable = r.getFilePointer();
+      r.skipBytes(2);
+      int numTables = uint16();
+      long subtableOffset = 0;
+      boolean notbl = true;
+      for (int platformID, encodingID, i = 0; i &lt; numTables; i++) {
+          platformID = uint16();
+          encodingID = uint16();
+          subtableOffset = uint32();  // offset32
+          if ((platformID == 3 &amp;&amp; (encodingID == 0 || encodingID == 1 || encodingID == 10)) ||                                       // Windows
+              (platformID == 0 &amp;&amp; (encodingID == 0 || encodingID == 1 || encodingID == 2 || encodingID == 3 || encodingID == 4))) {  // Unicode
+            notbl = false;
+            break;
+          }
+      }
+      if (notbl) { throw new IOException(&quot;No valid cmap sub-tables found&quot;); }
+      r.seek(startOfTable + subtableOffset);
+      int format = uint16();
+      if (format == 4) {
+        r.skipBytes(4);
+        int segCountX2 = uint16();
+        r.skipBytes(6);
+        int segCount = segCountX2 / 2;
+        int[] endCode = new int[segCount];
+        int[] startCode = new int[segCount];
+        short[] idDelta = new short[segCount];
+        int[] idRangeOffset = new int[segCount];
+        for (int i = 0; i &lt; segCount; i++) endCode[i] = uint16();
+        r.skipBytes(2);
+        for (int i = 0; i &lt; segCount; i++) startCode[i] = uint16();
+        for (int i = 0; i &lt; segCount; i++) idDelta[i] = int16();
+        long idRangeOffsetsStart = r.getFilePointer();
+        for (int i = 0; i &lt; segCount; i++) idRangeOffset[i] = uint16();
+        for (int i = 0; i &lt; segCount - 1; i++) {
+          int glyphIndex = 0;
+          long glyphIndexOffset;
+          for (int c = startCode[i]; c &lt;= endCode[i]; c++) {
+            if (idRangeOffset[i] != 0) {
+              glyphIndexOffset = idRangeOffsetsStart + idRangeOffset[i] + (i + c - startCode[i]) * 2;
+              r.seek(glyphIndexOffset);
+              glyphIndex = uint16();
+              if (glyphIndex != 0) {
+                glyphIndex = (glyphIndex + idDelta[i]) &amp; 0xFFFF;
+              }
+            } else {
+              glyphIndex = (c + idDelta[i]) &amp; 0xFFFF;
+            }
+            map.put(Integer.valueOf(c), Integer.valueOf(glyphIndex));
+          }
+        }
+      } else {
+        throw new IOException(&quot;Only format 4 cmap table supported, found format &quot; + format);
+      }
+    }
+
+    int uint16() throws IOException {
+      int b1 = r.read(), b2 = r.read();
+      if ((b1 | b2) &lt; 0) throw new EOFException();
+      return (b1 &lt;&lt; 8) + b2;
+    }
+
+    short int16() throws IOException { return (short) uint16(); }
+
+    long uint32() throws IOException {
+      long b1 = r.read(), b2 = r.read(), b3 = r.read(), b4 = r.read();
+      if ((b1 | b2 | b3 | b4) &lt; 0) throw new EOFException();
+      return (b1 &lt;&lt; 24) + (b2 &lt;&lt; 16) + (b3 &lt;&lt; 8) + b4;
+    }
+
+    int int32() throws IOException { return (int) uint32(); }
+
+    byte[] readBytes(int len) throws IOException {
+      byte[] buf = new byte[len];
+      if (r.read(buf) &lt; buf.length) throw new EOFException();
+      return buf;
+    }
+
+    String tag() throws IOException {
+      return new String(readBytes(4), StandardCharsets.ISO_8859_1);
+    }
+
+    int uni2gid(int uni) {
+      Integer gid = map.get(Integer.valueOf(uni));
+      return (gid == null ? 0 : gid.intValue());
+    }
+
+    int uni2width(int uni) {
+      return advanceWidth[uni2gid(uni)];
+    }
+  }  // End class Fnt
+}  // End class SmPDF
+</pre>
+<p><b><a href="SmPDF.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
