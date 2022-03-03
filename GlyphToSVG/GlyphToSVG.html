@@ -1,0 +1,337 @@
+<html><head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="description" content="Java, TTF, TrueType, Font, Glyph, SVG, Path, Download, Source, Free">
+<meta name="keywords" content="Java, TTF, TrueType, Font, Glyph, SVG, Path, Download, Source, Free">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrueType font glyphs to SVG paths</title>
+</head>
+<body bgcolor="#FFFFFF">
+<p>TrueType font glyphs to SVG paths</p>
+<a href="GlyphToSVG.jpg"><img src="GlyphToSVG.jpg" width="150" height="90" alt="TrueType font glyphs to SVG paths" title="TrueType font glyphs to SVG paths"></a>
+<p></p>
+<pre>
+--------------- GlyphToSVG.java ----------------
+
+import java.io.*;
+import java.nio.charset.*;
+import java.util.*;
+import java.util.AbstractMap.*;
+
+public class GlyphToSVG {
+
+  public static void main(String argv[]) { new GlyphToSVG(); }
+
+  GlyphToSVG() {
+
+    font(new File(&quot;Noto.ttf&quot;), -1);
+
+  }
+
+  void font(File fl, int ind) {
+    //System.out.println(fl.getAbsolutePath());
+    try (RandomAccessFile randomAccessFile = new RandomAccessFile(fl, &quot;r&quot;)) {
+      font(randomAccessFile, ind);
+    } catch (Exception ex) { ex.printStackTrace(); }
+  }
+
+  RandomAccessFile raf;
+  long offTHead = -1, offTMaxp = -1, offTLoca = -1, offTGlyf = -1;
+
+  void font(RandomAccessFile raf, int ind) throws IOException {
+    this.raf = raf;
+    long sfntVersion = uint32();
+    if (sfntVersion != 0x74727565 &amp;&amp; sfntVersion != 0x00010000) throw new IOException(&quot;only True Type font format supported&quot;);
+    int numTables = uint16();
+    uint16(); //searchRange
+    uint16(); //entrySelector
+    uint16(); //rangeShift
+    for (int i = 0; i &lt; numTables; i++) {
+      String tableTag = new String(readBytes(4), StandardCharsets.ISO_8859_1);
+      uint32();  //checksum
+      long offset = offset32();
+      uint32();  //length
+      switch (tableTag) {
+        case &quot;head&quot; : offTHead = offset; break;
+        case &quot;maxp&quot; : offTMaxp = offset; break;
+        case &quot;loca&quot; : offTLoca = offset; break;
+        case &quot;glyf&quot; : offTGlyf = offset; break;
+      }
+    }
+    if (offTHead &lt; 0 || offTMaxp &lt; 0 || offTLoca &lt; 0 || offTGlyf &lt; 0) {
+      throw new IOException(&quot;required tables are missing&quot;);
+    }
+    head();
+    maxp();
+    loca();
+    if (ind &gt;= 0 &amp;&amp; ind &lt; numGlyphs) glyph(ind);
+    else if (ind == -1) glyphs();
+    else if (ind == -2) for (int i = 0; i &lt; numGlyphs; i++) glyph(i);
+    else throw new IOException(&quot;bad ind &quot; + ind);
+  }
+
+  void glyph(int ind) throws IOException {
+    List&lt;Map.Entry&lt;Character, int[]&gt;&gt; lp = glyphPath(ind);
+    double k = 1;  //  1000d / unitsPerEm;
+    transform(lp, k, 0d, 0d, -k, 0, 0);
+    try (PrintWriter out = new PrintWriter(&quot;glyph&quot; + ind + &quot;.svg&quot;)) {
+      int x = (int)(xMin * k), y = (int)(-yMax * k), w = (int)((xMax - xMin) * k), h = (int)((yMax - yMin) * k);
+      out.println(&quot;&lt;svg width=\&quot;100%\&quot; height=\&quot;100%\&quot; viewBox=\&quot;&quot; + x + &quot; &quot; + y + &quot; &quot; + w + &quot; &quot; + h + &quot;\&quot; xmlns=\&quot;http://www.w3.org/2000/svg\&quot;&gt;&quot;);
+      out.println(&quot;  &lt;rect x=\&quot;&quot; + x + &quot;\&quot; y=\&quot;&quot; + y + &quot;\&quot; width=\&quot;&quot; + w + &quot;\&quot; height=\&quot;&quot; + h + &quot;\&quot; stroke=\&quot;black\&quot; fill=\&quot;transparent\&quot;/&gt;&quot;);
+      out.println(&quot;  &lt;path d=\&quot;&quot; + PathToString(lp) + &quot;\&quot;/&gt;&quot;);
+      out.println(&quot;&lt;/svg&gt;&quot;);
+    }
+  }
+
+  void glyphs() throws IOException {
+    try (PrintWriter out = new PrintWriter(&quot;glyphs.html&quot;)) {
+      out.println(&quot;&lt;html&gt;&lt;head&gt;&lt;/head&gt;&lt;body&gt;&quot;);
+      for (int i = 0; i &lt; numGlyphs; i++) {
+        List&lt;Map.Entry&lt;Character, int[]&gt;&gt; lp = glyphPath(i);
+        int offx= 5 + (i % 10) * 160;
+        int offy= 5 + (i / 10) * 160;
+        int x = xMin, y = -yMax, w = xMax - xMin, h = yMax - yMin;
+        transform(lp, 1, 0d, 0d, -1, 0, 0);
+        out.println(&quot;&lt;div style=\&quot;position: absolute; top: &quot; + offy + &quot;px; left: &quot; + offx + &quot;px;\&quot; title=\&quot;&quot; + i + &quot;\&quot;&gt;&quot;);
+        out.println(&quot;  &lt;svg width=\&quot;150\&quot; height=\&quot;150\&quot; viewBox=\&quot;&quot; + x + &quot; &quot; + y + &quot; &quot; + w + &quot; &quot; + h + &quot;\&quot; xmlns=\&quot;http://www.w3.org/2000/svg\&quot;&gt;&quot;);
+        out.println(&quot;    &lt;rect x=\&quot;&quot; + x + &quot;\&quot; y=\&quot;&quot; + y + &quot;\&quot; width=\&quot;&quot; + w + &quot;\&quot; height=\&quot;&quot; + h + &quot;\&quot; stroke=\&quot;black\&quot; fill=\&quot;transparent\&quot;/&gt;&quot;);
+        out.println(&quot;    &lt;path d=\&quot;&quot; + PathToString(lp) + &quot;\&quot;/&gt;&quot;);
+        out.println(&quot;  &lt;/svg&gt;&quot;);
+        out.println(&quot;&lt;/div&gt;&quot;);
+      }
+      out.println(&quot;&lt;/body&gt;&lt;/html&gt;&quot;);
+    }
+  }
+
+  String PathToString(List&lt;Map.Entry&lt;Character, int[]&gt;&gt; lp) {
+    StringBuilder sb = new StringBuilder();
+    for (Map.Entry&lt;Character, int[]&gt; en : lp) {
+      sb.append(en.getKey().charValue());
+      int[] arr = en.getValue();
+      for (int i = 0; i &lt; arr.length; i++) {
+        if (i &gt; 0 &amp;&amp; arr[i] &gt;= 0) sb.append(&apos; &apos;);
+        sb.append(arr[i]);
+      }
+    }
+    return sb.toString();
+  }
+
+  List&lt;Map.Entry&lt;Character, int[]&gt;&gt; glyphPath(int ind) {
+    List&lt;Map.Entry&lt;Character, int[]&gt;&gt; lp = new ArrayList&lt;&gt;();
+    if (glyphOffsets[ind] != glyphOffsets[ind + 1]) try {
+      raf.seek(offTGlyf + glyphOffsets[ind]);
+      short numberOfContours = int16();
+      int16();  //xMin
+      int16();  //yMin
+      int16();  //xMax
+      int16();  //yMax
+      if (numberOfContours &gt; 0) {  //simple glyphs
+        int[] endPtsOfContours = new int[numberOfContours];
+        int pointCount = 0;
+        for (int i = 0; i &lt; numberOfContours; i++) {
+          endPtsOfContours[i] = uint16();
+        }
+        pointCount = endPtsOfContours[numberOfContours - 1] + 1;
+        int instructionLength = uint16();
+        readBytes(instructionLength);  //instructions
+        int[] flags = new int[pointCount];
+        boolean[] onCurve = new boolean[pointCount];
+        int[] x = new int[pointCount];
+        int[] y = new int[pointCount];
+        int flag, repeatValue;
+        for (int i = 0; i &lt; pointCount; i++) {
+          flag = uint8();
+          flags[i] = flag;
+          boolean repeat = ((flag &amp; 0x0008) &gt; 0);
+          if (repeat) {
+            repeatValue = uint8();
+            for (int j = 0; j &lt; repeatValue; j++) {
+              i++;
+              flags[i] = flag;
+            }
+          }
+        }
+        for (int px = 0, i = 0; i &lt; pointCount; i++) {
+          onCurve[i] = ((flags[i] &amp;  0x0001) &gt; 0);
+          x[i] = px += readCoord(flags[i], 0x0002, 0x0010);
+        }
+        for (int py = 0, i = 0; i &lt; pointCount; i++) {
+          y[i] = py += readCoord(flags[i], 0x0004, 0x0020);
+        }
+        int x2 = 0, y2 = 0;
+        int startIndex, endIndex, prev, curr, next;
+        for (int p = 0, i = 0; i &lt; numberOfContours; i++) {
+          startIndex = p;
+          endIndex = (i == numberOfContours - 1 ? pointCount - 1 : endPtsOfContours[i]);
+          curr = endIndex;
+          next = startIndex;
+          if (onCurve[curr]) { x2 = x[curr]; y2 = y[curr]; }
+          else if (onCurve[next]) { x2 = x[next]; y2 = y[next]; }
+          else { x2 = (x[curr] + x[next]) / 2; y2 = (y[curr] + y[next]) / 2; }
+          lp.add(new SimpleEntry&lt;&gt;(Character.valueOf(&apos;M&apos;), new int[] { x2, y2 }));
+          while (p &lt;= endPtsOfContours[i]) {
+            prev = curr;
+            curr = next;
+            next = (p == endIndex ? startIndex : (p + 1));
+            if (onCurve[curr]) {
+              if (x2 != x[curr] || y2 != y[curr]) {
+                x2 = x[curr]; y2 = y[curr];
+                lp.add(new SimpleEntry&lt;&gt;(Character.valueOf(&apos;L&apos;), new int[] { x2, y2 }));
+              }
+            } else {
+              x2 = x[next];
+              y2 = y[next];
+              if (!onCurve[next]) {
+                x2 = (x[curr] + x2) / 2;
+                y2 = (y[curr] + y2) / 2;
+              }
+              lp.add(new SimpleEntry&lt;&gt;(Character.valueOf(&apos;Q&apos;), new int[] { x[curr], y[curr],  x2, y2 }));
+            }
+            p++;
+          }
+          lp.add(new SimpleEntry&lt;&gt;(Character.valueOf(&apos;Z&apos;), new int[] { }));
+        }
+      } else {   //composite glyphs
+        int flags, glyphIndex, dx, dy;
+        do {
+          flags = uint16();
+          glyphIndex = uint16();
+          long ptbl = raf.getFilePointer();
+          List&lt;Map.Entry&lt;Character, int[]&gt;&gt; cgp = glyphPath(glyphIndex);
+          raf.seek(ptbl);
+          if ((flags &amp; 0x0001) &gt; 0) {
+            dx = int16();
+            dy = int16();
+          } else {
+            dx = int8();
+            dy = int8();
+          }
+          if ((flags &amp; 0x0008) &gt; 0) {
+            double scale = f2d14();
+            transform(cgp, scale, 0d, 0d, scale, dx, dy);
+          } else if ((flags &amp; 0x0040) &gt; 0) {
+            double xscale = f2d14();
+            double yscale = f2d14();
+            transform(cgp, xscale, 0d, 0d, yscale, dx, dy);
+          } else if ((flags &amp; 0x0080) &gt; 0) {
+            double xscale = f2d14();
+            double scale01 = f2d14();
+            double scale10 = f2d14();
+            double yscale = f2d14();
+            transform(cgp, xscale, scale01, scale10, yscale, dx, dy);
+          } else if (dx != 0 || dy != 0) {
+            transform(cgp, 1d, 0d, 0d, 1d, dx, dy);
+          }
+          lp.addAll(cgp);
+        } while ((flags &amp; 0x0020) &gt; 0);
+      }
+    } catch (Exception ex) { System.out.println(&quot;faulty glyph &quot; + ind); }
+    return lp;
+  }
+
+  int readCoord(int flag, int mask1, int mask2) throws IOException {
+    int v = 0;
+    if ((flag &amp; mask1) == 0) {
+      if ((flag &amp; mask2) == 0) v = int16();
+    } else {
+      v = uint8();
+      if ((flag &amp; mask2) == 0) v = -v;
+    }
+    return v;
+  }
+
+  void transform(List&lt;Map.Entry&lt;Character, int[]&gt;&gt; cgp, double xscale, double scale01, double scale10, double yscale, int dx, int dy) {
+    for (Map.Entry&lt;Character, int[]&gt; en : cgp) {
+      int[] arr = en.getValue();
+      for (int i = 0; i &lt; arr.length; i += 2) {
+        int x = arr[i], y = arr[i + 1];
+        arr[i] = (int)(x * xscale + y * scale01) + dx;
+        arr[i + 1] = (int)(y * yscale + x * scale10) + dy;
+      }
+    }
+  }
+
+  short xMin, yMin, xMax, yMax;
+  short indexToLocFormat;
+
+  void head() throws IOException {
+    raf.seek(offTHead + 36);
+    xMin = int16();
+    yMin = int16();
+    xMax = int16();
+    yMax = int16();
+    uint16(); //macStyle
+    uint16(); //lowestRecPPEM
+    int16(); //fontDirectionHint
+    indexToLocFormat = int16();
+  }
+
+  int numGlyphs;
+
+  void maxp() throws IOException {
+    raf.seek(offTMaxp + 4);
+    numGlyphs = uint16();
+  }
+
+  long[] glyphOffsets;
+
+  void loca() throws IOException {
+    raf.seek(offTLoca);
+    glyphOffsets = new long[numGlyphs + 1];
+    if (indexToLocFormat == 0) {
+      for (int i = 0; i &lt; glyphOffsets.length; i++) glyphOffsets[i] = offset16() * 2;
+    } else {
+      for (int i = 0; i &lt; glyphOffsets.length; i++) glyphOffsets[i] = offset32();
+    }
+  }
+
+  int uint8() throws IOException {
+    int b = raf.read();
+    if (b &lt; 0) throw new EOFException();
+    return b;
+  }
+
+  byte int8() throws IOException { return (byte) uint8(); }
+
+  int uint16() throws IOException {
+    int b1 = raf.read(), b2 = raf.read();
+    if ((b1 | b2) &lt; 0) throw new EOFException();
+    return (b1 &lt;&lt; 8) + b2;
+  }
+
+  short int16() throws IOException { return (short) uint16(); }
+
+  long uint32() throws IOException {
+    long b1 = raf.read(), b2 = raf.read(), b3 = raf.read(), b4 = raf.read();
+    if ((b1 | b2 | b3 | b4) &lt; 0) throw new EOFException();
+    return (b1 &lt;&lt; 24) + (b2 &lt;&lt; 16) + (b3 &lt;&lt; 8) + b4;
+  }
+
+//  int int32() throws IOException { return (int) uint32();  }
+
+  double f2d14() throws IOException {
+    int b1 = raf.read(), b2 = raf.read();
+    if ((b1 | b2) &lt; 0) throw new EOFException();
+    int m = b1 &gt;&gt; 6;
+    if (m &gt;= 2) m -= 4;
+    return (double)m + (double)(((b1 &amp; 0x3f) &lt;&lt; 8) + b2) / 16384d;
+  }
+
+  byte[] readBytes(int len) throws IOException {
+    byte[] buf = new byte[len];
+    if (raf.read(buf) != buf.length) throw new EOFException();
+    return buf;
+  }
+
+  long offset32() throws IOException { return uint32(); }
+
+  int offset16() throws IOException { return uint16(); }
+}
+</pre>
+<p><b><a href="GlyphToSVG.zip">Download ZIP</a></b></p>
+<p><a href="../index.html">Back</a></p>
+
+<br>
+<br>
+<br>
+<br>
+</body></html>
