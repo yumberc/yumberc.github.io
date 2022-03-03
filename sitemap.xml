@@ -114,6 +114,13 @@
         </image:image>
     </url>
     <url>
+        <loc>https://yumberc.github.io/GlyphToSVG/GlyphToSVG.html</loc>
+        <image:image>
+            <image:loc>https://yumberc.github.io/GlyphToSVG/GlyphToSVG.jpg</image:loc>
+            <image:caption>TrueType font glyphs to SVG paths</image:caption>
+        </image:image>
+    </url>
+    <url>
         <loc>https://yumberc.github.io/AnsiConsole/AnsiConsole.html</loc>
         <image:image>
             <image:loc>https://yumberc.github.io/AnsiConsole/AnsiConsole.jpg</image:loc>
